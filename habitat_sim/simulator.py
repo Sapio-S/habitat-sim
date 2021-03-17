@@ -28,6 +28,7 @@ class Configuration(object):
 class Simulator:
     config: Configuration
     agents: List[Agent] = attr.ib(factory=list, init=False)
+    # num_agents: int = attr.ib(default=len(self.agents), init=False) # ! wrong debug@chao
     pathfinder: hsim.PathFinder = attr.ib(default=None, init=False)
     _sim: hsim.SimulatorBackend = attr.ib(default=None, init=False)
     _num_total_frames: int = attr.ib(default=0, init=False)
@@ -49,7 +50,8 @@ class Simulator:
 
     def reset(self):
         self._sim.reset()
-        return self.get_sensor_observations()
+        obs = [self.get_sensor_observations(agent_id) for agent_id in range(len(self.agents))]
+        return obs
 
     def _config_backend(self, config: Configuration):
         if self._sim is None:
@@ -108,14 +110,18 @@ class Simulator:
         for i in range(len(self.agents)):
             self.agents[i].controls.move_filter_fn = self._step_filter
 
-        self._default_agent = self.get_agent(config.sim_cfg.default_agent_id)
+        # self._default_agent = self.get_agent(config.sim_cfg.default_agent_id)
 
         agent_cfg = config.agents[config.sim_cfg.default_agent_id]
-        self._sensors = {}
-        for spec in agent_cfg.sensor_specifications:
-            self._sensors[spec.uuid] = Sensor(
-                sim=self._sim, agent=self._default_agent, sensor_id=spec.uuid
-            )
+        sensor_tmp = {}
+        self._sensors = []
+        for i in range(len(self.agents)):
+            for spec in agent_cfg.sensor_specifications:
+                sensor_tmp[spec.uuid]  = Sensor(
+                    sim=self._sim, agent=self.agents[i], sensor_id=spec.uuid
+                )
+            self._sensors.append(sensor_tmp)
+            sensor_tmp = {}
 
         for i in range(len(self.agents)):
             self.initialize_agent(i)
@@ -145,25 +151,25 @@ class Simulator:
     def semantic_scene(self):
         return self._sim.semantic_scene
 
-    def get_sensor_observations(self):
+    def get_sensor_observations(self, agent_id):
         observations = {}
-        for sensor_uuid, sensor in self._sensors.items():
+        for sensor_uuid, sensor in self._sensors[agent_id].items():
             observations[sensor_uuid] = sensor.get_observation()
         return observations
 
     def last_state(self):
         return self._last_state
 
-    def step(self, action, dt=1.0 / 60.0):
+    def step(self, action, agent_id, dt=1.0 / 60.0):
         self._num_total_frames += 1
-        collided = self._default_agent.act(action)
-        self._last_state = self._default_agent.get_state()
+        collided = self.agents[agent_id].act(action)
+        self._last_state = self.agents[agent_id].get_state()
 
         # step physics by dt
         self._sim.step_world(dt)
         # print("World time is now: " + str(self._sim.get_world_time()))
 
-        observations = self.get_sensor_observations()
+        observations = self.get_sensor_observations(agent_id)
         # Whether or not the action taken resulted in a collision
         observations["collided"] = collided
 
