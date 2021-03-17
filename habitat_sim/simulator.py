@@ -70,6 +70,9 @@ class Simulator(SimulatorBackend):
 
     config: Configuration
     agents: List[Agent] = attr.ib(factory=list, init=False)
+    # num_agents: int = attr.ib(default=len(self.agents), init=False) # ! wrong debug@chao
+    pathfinder: hsim.PathFinder = attr.ib(default=None, init=False)
+    _sim: hsim.SimulatorBackend = attr.ib(default=None, init=False)
     _num_total_frames: int = attr.ib(default=0, init=False)
     _default_agent_id: int = attr.ib(default=0, init=False)
     __sensors: List[Dict[str, "Sensor"]] = attr.ib(factory=list, init=False)
@@ -133,7 +136,10 @@ class Simulator(SimulatorBackend):
 
         self.__last_state.clear()
 
-        super().close()
+    def reset(self):
+        self._sim.reset()
+        obs = [self.get_sensor_observations(agent_id) for agent_id in range(len(self.agents))]
+        return obs
 
     def __enter__(self) -> "Simulator":
         return self
@@ -250,9 +256,20 @@ class Simulator(SimulatorBackend):
         self.frustum_culling = config.sim_cfg.frustum_culling
 
         for i in range(len(self.agents)):
-            self.agents[i].controls.move_filter_fn = self.step_filter
+            self.agents[i].controls.move_filter_fn = self._step_filter
 
-        self._default_agent_id = config.sim_cfg.default_agent_id
+        # self._default_agent = self.get_agent(config.sim_cfg.default_agent_id)
+
+        agent_cfg = config.agents[config.sim_cfg.default_agent_id]
+        sensor_tmp = {}
+        self._sensors = []
+        for i in range(len(self.agents)):
+            for spec in agent_cfg.sensor_specifications:
+                sensor_tmp[spec.uuid]  = Sensor(
+                    sim=self._sim, agent=self.agents[i], sensor_id=spec.uuid
+                )
+            self._sensors.append(sensor_tmp)
+            sensor_tmp = {}
 
         self.__sensors: List[Dict[str, Sensor]] = [
             dict() for i in range(len(config.agents))
@@ -361,84 +378,33 @@ class Simulator(SimulatorBackend):
         # TODO Deprecate and remove
         return self.get_agent(agent_id=self._default_agent_id)
 
-    @property
-    def _last_state(self) -> AgentState:
-        # TODO Deprecate and remove
-        return self.__last_state[self._default_agent_id]
+    def get_sensor_observations(self, agent_id):
+        observations = {}
+        for sensor_uuid, sensor in self._sensors[agent_id].items():
+            observations[sensor_uuid] = sensor.get_observation()
+        return observations
 
     @_last_state.setter
     def _last_state(self, state: AgentState) -> None:
         # TODO Deprecate and remove
         self.__last_state[self._default_agent_id] = state
 
-    @property
-    def _sensors(self) -> Dict[str, "Sensor"]:
-        # TODO Deprecate and remove
-        return self.__sensors[self._default_agent_id]
-
-    def last_state(self, agent_id: Optional[int] = None) -> AgentState:
-        if agent_id is None:
-            agent_id = self._default_agent_id
-        return self.__last_state[agent_id]
-
-    @overload
-    def step(
-        self, action: Union[str, int], dt: float = 1.0 / 60.0
-    ) -> Dict[str, Union[bool, ndarray, "Tensor"]]:
-        ...
-
-    @overload
-    def step(
-        self, action: MutableMapping_T[int, Union[str, int]], dt: float = 1.0 / 60.0
-    ) -> Dict[int, Dict[str, Union[bool, ndarray, "Tensor"]]]:
-        ...
-
-    def step(
-        self,
-        action: Union[str, int, MutableMapping_T[int, Union[str, int]]],
-        dt: float = 1.0 / 60.0,
-    ) -> Union[
-        Dict[str, Union[bool, ndarray, "Tensor"]],
-        Dict[int, Dict[str, Union[bool, ndarray, "Tensor"]]],
-    ]:
+    def step(self, action, agent_id, dt=1.0 / 60.0):
         self._num_total_frames += 1
-        if isinstance(action, MutableMapping):
-            return_single = False
-        else:
-            action = cast(Dict[int, Union[str, int]], {self._default_agent_id: action})
-            return_single = True
-        collided_dict: Dict[int, bool] = {}
-        for agent_id, agent_act in action.items():
-            agent = self.get_agent(agent_id)
-            collided_dict[agent_id] = agent.act(agent_act)
-            self.__last_state[agent_id] = agent.get_state()
+        collided = self.agents[agent_id].act(action)
+        self._last_state = self.agents[agent_id].get_state()
 
         # step physics by dt
-        step_start_Time = time.time()
-        super().step_world(dt)
-        self._previous_step_time = time.time() - step_start_Time
+        self._sim.step_world(dt)
+        # print("World time is now: " + str(self._sim.get_world_time()))
 
-        multi_observations = self.get_sensor_observations(agent_ids=list(action.keys()))
-        for agent_id, agent_observation in multi_observations.items():
-            agent_observation["collided"] = collided_dict[agent_id]
-        if return_single:
-            return multi_observations[self._default_agent_id]
-        return multi_observations
+        observations = self.get_sensor_observations(agent_id)
+        # Whether or not the action taken resulted in a collision
+        observations["collided"] = collided
 
-    def make_greedy_follower(
-        self,
-        agent_id: Optional[int] = None,
-        goal_radius: float = None,
-        *,
-        stop_key: Optional[Any] = None,
-        forward_key: Optional[Any] = None,
-        left_key: Optional[Any] = None,
-        right_key: Optional[Any] = None,
-        fix_thrashing: bool = True,
-        thrashing_threshold: int = 16,
-    ):
-        if agent_id is None:
-            agent_id = self._default_agent_id
+        return observations
+
+    def make_greedy_follower(self, agent_id: int = 0, goal_radius: float = None):
         return GreedyGeodesicFollower(
             self.pathfinder,
             self.get_agent(agent_id),
