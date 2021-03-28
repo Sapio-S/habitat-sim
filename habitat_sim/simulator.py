@@ -28,7 +28,6 @@ class Configuration(object):
 class Simulator:
     config: Configuration
     agents: List[Agent] = attr.ib(factory=list, init=False)
-    # num_agents: int = attr.ib(default=len(self.agents), init=False) # ! wrong debug@chao
     pathfinder: hsim.PathFinder = attr.ib(default=None, init=False)
     _sim: hsim.SimulatorBackend = attr.ib(default=None, init=False)
     _num_total_frames: int = attr.ib(default=0, init=False)
@@ -77,6 +76,7 @@ class Simulator:
             navmesh_filenname = osp.splitext(config.sim_cfg.scene.id)[0] + ".navmesh"
 
         self.pathfinder = hsim.PathFinder()
+        self.pathfinder.seed(config.sim_cfg.seed) # ensure use random seed here! kind of complex!
         if osp.exists(navmesh_filenname):
             self.pathfinder.load_nav_mesh(navmesh_filenname)
             logger.info(f"Loaded navmesh {navmesh_filenname}")
@@ -139,7 +139,6 @@ class Simulator:
             initial_state.rotation = utils.quat_from_angle_axis(
                 np.random.uniform(0, 2.0 * np.pi), np.array([0, 1, 0])
             )
-
         agent.set_state(initial_state)
         self._last_state = agent.state
         return agent

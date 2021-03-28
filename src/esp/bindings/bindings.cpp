@@ -438,6 +438,7 @@ PYBIND11_MODULE(habitat_sim_bindings, m) {
       m, "SimulatorConfiguration")
       .def(py::init(&SimulatorConfiguration::create<>))
       .def_readwrite("scene", &SimulatorConfiguration::scene)
+      .def_readwrite("seed", &SimulatorConfiguration::seed)
       .def_readwrite("default_agent_id",
                      &SimulatorConfiguration::defaultAgentId)
       .def_readwrite("default_camera_uuid",

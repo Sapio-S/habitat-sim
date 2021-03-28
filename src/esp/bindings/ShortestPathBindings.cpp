@@ -56,6 +56,7 @@ void initShortestPathBindings(py::module& m) {
            "end"_a)
       .def("try_step", &PathFinder::tryStep<vec3f>, R"()", "start"_a, "end"_a)
       .def("island_radius", &PathFinder::islandRadius, R"()", "pt"_a)
+      .def("seed", &PathFinder::seed, R"()", "new_seed"_a)
       .def_property_readonly("is_loaded", &PathFinder::isLoaded)
       .def("load_nav_mesh", &PathFinder::loadNavMesh)
       .def("distance_to_closest_obstacle",

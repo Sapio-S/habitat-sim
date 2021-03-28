@@ -27,6 +27,7 @@ namespace gfx {
 class Renderer;
 
 struct SimulatorConfiguration {
+  uint32_t seed = 1;
   scene::SceneConfiguration scene;
   int defaultAgentId = 0;
   int gpuDeviceId = 0;
