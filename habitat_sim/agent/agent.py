@@ -180,7 +180,6 @@ class Agent(object):
             )
 
         state.rotation = utils.quat_from_magnum(state.rotation)
-
         return state
 
     def set_state(self, state: AgentState, reset_sensors: bool = True):
