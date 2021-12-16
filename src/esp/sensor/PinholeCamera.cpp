@@ -54,29 +54,29 @@ bool PinholeCamera::getObservation(gfx::Simulator& sim, Observation& obs) {
     buffer_ = core::Buffer::create(space.shape, space.dataType);
   }
   obs.buffer = buffer_;
-
+  
   // TODO: Get appropriate render with correct resolution
-  std::shared_ptr<gfx::Renderer> renderer = sim.getRenderer();
-  vec3i resolution = renderer->getSize();
+  std::vector<std::shared_ptr<gfx::Renderer>> renderer = sim.getRenderer();
+  vec3i resolution = renderer[0]->getSize();
   if (resolution[0] != width_ || resolution[1] != height_) {
-    renderer->setSize(width_, height_);
+    renderer[0]->setSize(width_, height_);
   }
   if (spec_->sensorType == SensorType::SEMANTIC) {
     // TODO: check sim has semantic scene graph
-    renderer->draw(*this, sim.getActiveSemanticSceneGraph());
+    renderer[0]->draw(*this, sim.getActiveSemanticSceneGraph());
   } else {
     // SensorType is DEPTH or any other type
-    renderer->draw(*this, sim.getActiveSceneGraph());
+    renderer[0]->draw(*this, sim.getActiveSceneGraph());
   }
 
   // TODO: have different classes for the different types of sensors
   // TODO: do we need to flip axis?
   if (spec_->sensorType == SensorType::SEMANTIC) {
-    renderer->readFrameObjectId((uint32_t*)buffer_->data);
+    renderer[0]->readFrameObjectId((uint32_t*)buffer_->data);
   } else if (spec_->sensorType == SensorType::DEPTH) {
-    renderer->readFrameDepth((float*)buffer_->data);
+    renderer[0]->readFrameDepth((float*)buffer_->data);
   } else {
-    renderer->readFrameRgba((uint8_t*)buffer_->data);
+    renderer[0]->readFrameRgba((uint8_t*)buffer_->data);
   }
   return true;
 }

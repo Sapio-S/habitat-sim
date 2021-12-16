@@ -144,8 +144,9 @@ EMSCRIPTEN_BINDINGS(habitat_sim_bindings_js) {
       .property("defaultAgentId", &SimulatorConfiguration::defaultAgentId)
       .property("defaultCameraUuid", &SimulatorConfiguration::defaultCameraUuid)
       .property("gpuDeviceId", &SimulatorConfiguration::gpuDeviceId)
-      .property("width", &SimulatorConfiguration::width)
-      .property("height", &SimulatorConfiguration::height)
+      .property("width", &SimulatorConfiguration::width_test)
+      .property("height", &SimulatorConfiguration::height_test)
+      .property("renderer_num", &SimulatorConfiguration::renderer_num)
       .property("compressTextures", &SimulatorConfiguration::compressTextures);
 
   em::class_<AgentState>("AgentState")

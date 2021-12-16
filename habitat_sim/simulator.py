@@ -88,11 +88,18 @@ class Simulator:
     def reconfigure(self, config: Configuration):
         assert len(config.agents) > 0
         if len(config.agents[0].sensor_specifications) > 0:
-            first_sensor_spec = config.agents[0].sensor_specifications[0]
+            self.height= []
+            self.width = []
             config.sim_cfg.create_renderer = True
-
-            config.sim_cfg.height = first_sensor_spec.resolution[0]
-            config.sim_cfg.width = first_sensor_spec.resolution[1]
+            for i in range(len(config.agents[0].sensor_specifications)):
+                first_sensor_spec = config.agents[0].sensor_specifications[i]
+                if i!=0 and (first_sensor_spec.resolution[0] not in np.array(self.height)) and \
+                             (first_sensor_spec.resolution[1] not in np.array(self.width)):
+                    self.height.append(first_sensor_spec.resolution[0])
+                    self.width.append(first_sensor_spec.resolution[1])
+            config.sim_cfg.renderer_num = len(self.height)
+            config.sim_cfg.height = self.height
+            config.sim_cfg.width = self.width
         else:
             config.sim_cfg.create_renderer = False
 
@@ -235,7 +242,7 @@ class Sensor:
     def __init__(self, sim, agent, sensor_id):
         self._sim = sim
         self._agent = agent
-
+        
         # sensor is an attached object to the scene node
         # store such "attached object" in _sensor_object
         self._sensor_object = self._agent.sensors.get(sensor_id)
@@ -293,16 +300,19 @@ class Sensor:
         # internally it will set the camera parameters (from the sensor) to the
         # default render camera in the scene so that
         # it has correct modelview matrix, projection matrix to render the scene
-        self._sim.renderer.draw(self._sensor_object, scene)
-
+        for i in range(len(self._sim.renderer)):
+            if self._spec.resolution[0]== self._sim.height[i] and self._spec.resolution[1]== self._sim.width[i]:
+                break;
+            
+        self._sim.renderer[i].draw(self._sensor_object, scene)
         if self._spec.sensor_type == hsim.SensorType.SEMANTIC:
-            self._sim.renderer.readFrameObjectId(self._buffer)
+            self._sim.renderer[i].readFrameObjectId(self._buffer)
             return np.flip(self._buffer, axis=0).copy()
         elif self._spec.sensor_type == hsim.SensorType.DEPTH:
-            self._sim.renderer.readFrameDepth(self._buffer)
+            self._sim.renderer[i].readFrameDepth(self._buffer)
             return np.flip(self._buffer, axis=0).copy()
         else:
-            self._sim.renderer.readFrameRgba(self._buffer)
+            self._sim.renderer[i].readFrameRgba(self._buffer)
             return np.flip(
                 self._buffer.reshape(
                     (

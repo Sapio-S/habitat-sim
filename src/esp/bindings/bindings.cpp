@@ -444,8 +444,9 @@ PYBIND11_MODULE(habitat_sim_bindings, m) {
       .def_readwrite("default_camera_uuid",
                      &SimulatorConfiguration::defaultCameraUuid)
       .def_readwrite("gpu_device_id", &SimulatorConfiguration::gpuDeviceId)
-      .def_readwrite("width", &SimulatorConfiguration::width)
-      .def_readwrite("height", &SimulatorConfiguration::height)
+      .def_readwrite("width", &SimulatorConfiguration::width_test)
+      .def_readwrite("height", &SimulatorConfiguration::height_test)
+      .def_readwrite("renderer_num", &SimulatorConfiguration::renderer_num)
       .def_readwrite("compress_textures",
                      &SimulatorConfiguration::compressTextures)
       .def_readwrite("create_renderer", &SimulatorConfiguration::createRenderer)
@@ -475,6 +476,8 @@ PYBIND11_MODULE(habitat_sim_bindings, m) {
            pybind11::return_value_policy::reference)
       .def_property_readonly("semantic_scene", &Simulator::getSemanticScene)
       .def_property_readonly("renderer", &Simulator::getRenderer)
+      .def_property_readonly("width", &Simulator::getWidth)
+      .def_property_readonly("height", &Simulator::getHeight)
       .def("seed", &Simulator::seed, R"()", "new_seed"_a)
       .def("reconfigure", &Simulator::reconfigure, R"()", "configuration"_a)
       .def("reset", &Simulator::reset, R"()")

@@ -34,7 +34,9 @@ struct SimulatorConfiguration {
   std::string defaultCameraUuid = "rgba_camera";
   bool compressTextures = false;
   bool createRenderer = true;
-  int width = 256, height = 256;
+  int renderer_num = 2; 
+  std::vector<int> width_test{256,256};
+  std::vector<int> height_test{256,256};
 
   bool enablePhysics = false;
   std::string physicsConfigFile =
@@ -60,7 +62,9 @@ class Simulator {
 
   virtual void seed(uint32_t newSeed);
 
-  std::shared_ptr<Renderer> getRenderer();
+  std::vector<std::shared_ptr<Renderer>> getRenderer();
+  std::vector<int> getWidth();
+  std::vector<int> getHeight();
   std::shared_ptr<physics::PhysicsManager> getPhysicsManager();
   std::shared_ptr<scene::SemanticScene> getSemanticScene();
 
@@ -133,6 +137,9 @@ class Simulator {
   Simulator() {}
   std::unique_ptr<WindowlessContext> context_ = nullptr;
   std::shared_ptr<Renderer> renderer_ = nullptr;
+  std::vector<std::shared_ptr<Renderer>> renderer_set_;
+  std::vector<int> width_test;
+  std::vector<int> height_test;
   // CANNOT make the specification of resourceManager_ above the context_!
   // Because when deconstructing the resourceManager_, it needs
   // the GL::Context

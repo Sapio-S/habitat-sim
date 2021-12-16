@@ -1,9 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
-
+using namespace std;
 #include "Simulator.h"
-
+#include <algorithm>
 #include <string>
 
 #include <Corrade/Containers/Pointer.h>
@@ -52,9 +52,11 @@ void Simulator::reconfigure(const SimulatorConfiguration& cfg) {
   // TODO can optimize to do partial re-initialization instead of from-scratch
   config_ = cfg;
 
-  const int height = cfg.height;
-  const int width = cfg.width;
-
+  for (int i = 0; i < cfg.renderer_num; ++i)
+    {
+      width_test.push_back(cfg.width_test[i]);
+      height_test.push_back(cfg.height_test[i]);
+    }
   // load scene
   std::string sceneFilename = cfg.scene.id;
   if (cfg.scene.filepaths.count("mesh")) {
@@ -85,9 +87,10 @@ void Simulator::reconfigure(const SimulatorConfiguration& cfg) {
     }
 
     // reinitalize members
-    renderer_ = nullptr;
-    renderer_ = Renderer::create(width, height);
-
+    for (int i = 0; i < cfg.renderer_num; ++i)
+    { 
+      renderer_set_.push_back(Renderer::create(width_test[i], height_test[i]));
+    };
     auto& sceneGraph = sceneManager_.getSceneGraph(activeSceneID_);
 
     auto& rootNode = sceneGraph.getRootNode();
@@ -163,8 +166,16 @@ void Simulator::seed(uint32_t newSeed) {
   random_.seed(newSeed);
 }
 
-std::shared_ptr<Renderer> Simulator::getRenderer() {
-  return renderer_;
+std::vector<int> Simulator::getWidth() {
+  return width_test;
+}
+
+std::vector<int> Simulator::getHeight() {
+  return height_test;
+}
+
+std::vector<std::shared_ptr<Renderer>> Simulator::getRenderer() {
+  return renderer_set_;
 }
 
 std::shared_ptr<physics::PhysicsManager> Simulator::getPhysicsManager() {
