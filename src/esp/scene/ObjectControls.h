@@ -2,13 +2,14 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_SCENE_OBJECTCONTROLS_H_
+#define ESP_SCENE_OBJECTCONTROLS_H_
 
 #include <functional>
 #include <map>
 #include <string>
 
-#include "esp/core/esp.h"
+#include "esp/core/Esp.h"
 
 namespace esp {
 namespace scene {
@@ -40,9 +41,8 @@ class ObjectControls {
   }
 
  protected:
-  MoveFilterFunc moveFilterFunc_ = [](const vec3f& start, const vec3f& end) {
-    return end;
-  };
+  MoveFilterFunc moveFilterFunc_ = [](const vec3f& /*start*/,
+                                      const vec3f& end) { return end; };
   std::map<std::string, MoveFunc> moveFuncMap_;
 
   ESP_SMART_POINTERS(ObjectControls)
@@ -50,3 +50,5 @@ class ObjectControls {
 
 }  // namespace scene
 }  // namespace esp
+
+#endif  // ESP_SCENE_OBJECTCONTROLS_H_

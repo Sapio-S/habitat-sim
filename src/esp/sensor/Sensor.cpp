@@ -3,51 +3,76 @@
 // LICENSE file in the root directory of this source tree.
 
 #include "Sensor.h"
-
 #include <Magnum/EigenIntegration/Integration.h>
+#include "esp/core/Check.h"
+#include "esp/scene/SceneGraph.h"
+
+#include <utility>
 
 namespace esp {
 namespace sensor {
 
-Sensor::Sensor(scene::SceneNode& node, SensorSpec::ptr spec)
-    : Magnum::SceneGraph::AbstractFeature3D{node}, spec_(spec) {
-  node.setType(scene::SceneNodeType::SENSOR);
-  if (spec_ == nullptr) {
-    LOG(ERROR) << "Cannot initialize sensor. The specification is null.";
-  }
-  ASSERT(spec_ != nullptr);
+bool SensorSpec::operator==(const SensorSpec& a) const {
+  return uuid == a.uuid && sensorType == a.sensorType &&
+         sensorSubType == a.sensorSubType && position == a.position &&
+         orientation == a.orientation && noiseModel == a.noiseModel;
+}
 
+bool SensorSpec::operator!=(const SensorSpec& a) const {
+  return !(*this == a);
+}
+
+void SensorSpec::sanityCheck() const {
+  CORRADE_ASSERT(this, "SensorSpec::sanityCheck(): sensorSpec is illegal", );
+  // Check that all parameters are initialized to legal values
+  CORRADE_ASSERT(!uuid.empty(),
+                 "SensorSpec::sanityCheck(): uuid cannot be an empty string", );
+  CORRADE_ASSERT(
+      sensorType > SensorType::None && sensorType < SensorType::SensorTypeCount,
+      "SensorSpec::sanityCheck(): sensorType" << int32_t(sensorType)
+                                              << "is illegal", );
+  CORRADE_ASSERT(sensorSubType > SensorSubType::None &&
+                     sensorSubType < SensorSubType::SensorSubTypeCount,
+                 "SensorSpec::sanityCheck(): sensorSubType"
+                     << int32_t(sensorType) << "is illegal", );
+  CORRADE_ASSERT((abs(position.array()) >= 0).any(),
+                 "SensorSpec::sanityCheck(): position is illegal", );
+  CORRADE_ASSERT((abs(orientation.array()) >= 0).any(),
+                 "SensorSpec::sanityCheck(): orientation is illegal", );
+  CORRADE_ASSERT(!noiseModel.empty(),
+                 "SensorSpec::sanityCheck(): noiseModel is unitialized", );
+}
+
+Sensor::Sensor(scene::SceneNode& node, SensorSpec::ptr spec)
+    : Magnum::SceneGraph::AbstractFeature3D{node}, spec_(std::move(spec)) {
+  CORRADE_ASSERT(node.children().first() == nullptr,
+                 "Sensor::Sensor(): Cannot attach a sensor to a non-LEAF node. "
+                 "The number of children of this node is not zero.", );
+  CORRADE_ASSERT(
+      node.getSceneNodeTags() & scene::SceneNodeTag::Leaf,
+      "Sensor::Sensor(): Cannot attach a sensor to a non-LEAF node.", );
+  node.setType(scene::SceneNodeType::SENSOR);
+  CORRADE_ASSERT(spec_,
+                 "Sensor::Sensor(): Cannot initialize sensor. The "
+                 "specification is null.", );
+  spec_->sanityCheck();
+  node.getNodeSensorSuite().add(*this);
+  node.getSubtreeSensorSuite().add(*this);
+  node.addSensorToParentNodeSensorSuite();
+  // Traverse up to root node and add sensor to every subtreeSensorSuite
+  node.addSubtreeSensorsToAncestors();
   setTransformationFromSpec();
 }
 
-bool Sensor::getObservation(gfx::Simulator& sim, Observation& obs) {
-  // TODO fill out observation
-  return false;
-}
-
-bool Sensor::getObservationSpace(ObservationSpace& space) {
-  // TODO fill out observation space
-  return false;
-}
-
-void SensorSuite::add(Sensor::ptr sensor) {
-  const std::string uuid = sensor->specification()->uuid;
-  sensors_[uuid] = sensor;
-}
-
-Sensor::ptr SensorSuite::get(const std::string& uuid) const {
-  return (sensors_.at(uuid));
-}
-
-void SensorSuite::clear() {
-  sensors_.clear();
+Sensor::~Sensor() {
+  // Updating of info in SensorSuites will be handled by SceneNode
+  ESP_DEBUG() << "Deconstructing Sensor";
 }
 
 void Sensor::setTransformationFromSpec() {
-  if (spec_ == nullptr) {
-    LOG(ERROR) << "Cannot initialize sensor. the specification is null.";
-    return;
-  }
+  CORRADE_ASSERT(spec_,
+                 "Sensor::setTransformationFromSpec: Cannot set "
+                 "transformation, the specification is null.", );
 
   node().resetTransformation();
 
@@ -57,15 +82,30 @@ void Sensor::setTransformationFromSpec() {
   node().rotateZ(Magnum::Rad(spec_->orientation[2]));
 }
 
-bool operator==(const SensorSpec& a, const SensorSpec& b) {
-  return a.uuid == b.uuid && a.sensorType == b.sensorType &&
-         a.sensorSubtype == b.sensorSubtype && a.parameters == b.parameters &&
-         a.position == b.position && a.orientation == b.orientation &&
-         a.resolution == b.resolution && a.channels == b.channels &&
-         a.encoding == b.encoding && a.observationSpace == b.observationSpace;
+SensorSuite::SensorSuite(scene::SceneNode& node)
+    : Magnum::SceneGraph::AbstractFeature3D{node} {}
+
+void SensorSuite::add(sensor::Sensor& sensor) {
+  sensors_.emplace(sensor.specification()->uuid, std::ref(sensor));
 }
-bool operator!=(const SensorSpec& a, const SensorSpec& b) {
-  return !(a == b);
+
+void SensorSuite::remove(const sensor::Sensor& sensor) {
+  remove(sensor.specification()->uuid);
+}
+
+void SensorSuite::remove(const std::string& uuid) {
+  sensors_.erase(uuid);
+}
+
+sensor::Sensor& SensorSuite::get(const std::string& uuid) const {
+  ESP_CHECK(
+      sensors_.count(uuid),
+      "SensorSuite::get(): SensorSuite does not contain key:" << uuid.c_str());
+  return sensors_.at(uuid).get();
+}
+
+void SensorSuite::clear() {
+  sensors_.clear();
 }
 
 }  // namespace sensor

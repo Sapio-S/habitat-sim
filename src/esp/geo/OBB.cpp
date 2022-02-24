@@ -4,9 +4,10 @@
 
 #include "OBB.h"
 
+#include <array>
 #include <vector>
 
-#include "esp/geo/geo.h"
+#include "esp/geo/Geo.h"
 
 namespace esp {
 namespace geo {
@@ -41,9 +42,9 @@ box3f OBB::toAABB() const {
 }
 
 void OBB::recomputeTransforms() {
-  ASSERT(center_.allFinite());
-  ASSERT(halfExtents_.allFinite());
-  ASSERT(rotation_.coeffs().allFinite());
+  CORRADE_INTERNAL_ASSERT(center_.allFinite());
+  CORRADE_INTERNAL_ASSERT(halfExtents_.allFinite());
+  CORRADE_INTERNAL_ASSERT(rotation_.coeffs().allFinite());
 
   // TODO(MS): these can be composed more efficiently and directly
   const mat3f R = rotation_.matrix();
@@ -107,7 +108,7 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
     const float dd = d0[0] * d1[1] - d0[1] * d1[0];
 
     const float dx = s1[0] - s0[0];
-    const float dy = s1[1] - s0[0];
+    const float dy = s1[1] - s0[1];
     const float t = (dx * d1[1] - dy * d1[0]) / dd;
 
     return s0 + t * d0;
@@ -129,14 +130,17 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
   };
 
   std::vector<vec2f> in_plane_points;
+  in_plane_points.reserve(points.size());
   for (const auto& pt : points) {
     vec3f aligned_pt = align_gravity * pt;
     in_plane_points.emplace_back(aligned_pt[0], aligned_pt[1]);
   }
 
   const auto hull = convexHull2D(in_plane_points);
+  CORRADE_INTERNAL_ASSERT(hull.size() > 0);
 
   std::vector<vec2f> edge_dirs;
+  edge_dirs.reserve(hull.size());
   for (size_t i = 0; i < hull.size(); ++i) {
     edge_dirs.emplace_back(
         (hull[(i + 1) % hull.size()] - hull[i]).normalized());
@@ -171,9 +175,9 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
         top_dir = vec2f(-1, 0), bottom_dir = vec2f(1, 0);
 
   float best_area = 1e10;
-  vec2f best_bottom_dir;
+  vec2f best_bottom_dir = vec2f(NAN, NAN);
   for (size_t i = 0; i < hull.size(); ++i) {
-    const std::vector<float> angles(
+    const std::array<float, 4> angles(
         {std::acos(left_dir.dot(edge_dirs[left_idx])),
          std::acos(right_dir.dot(edge_dirs[right_idx])),
          std::acos(top_dir.dot(edge_dirs[top_idx])),
@@ -217,7 +221,7 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
         bottom_idx = (bottom_idx + 1) % hull.size();
         break;
       default:
-        ASSERT(false);
+        CORRADE_INTERNAL_ASSERT(false);
     }
 
     const float area =
@@ -228,7 +232,6 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
       best_area = area;
     }
   }
-
   const auto T_w2b =
       quatf::FromTwoVectors(vec3f(best_bottom_dir[0], best_bottom_dir[1], 0),
                             vec3f::UnitX()) *
@@ -236,11 +239,11 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
 
   box3f aabb;
   aabb.setEmpty();
-  for (auto& pt : points) {
+  for (const auto& pt : points) {
     aabb.extend(T_w2b * pt);
   }
 
-  return OBB{aabb.center(), aabb.sizes(), T_w2b.inverse()};
+  return OBB{T_w2b.inverse() * aabb.center(), aabb.sizes(), T_w2b.inverse()};
 }
 
 }  // namespace geo

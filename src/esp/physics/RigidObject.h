@@ -2,134 +2,217 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_PHYSICS_RIGIDOBJECT_H_
+#define ESP_PHYSICS_RIGIDOBJECT_H_
+
+/** @file
+ * @brief Class @ref esp::physics::RigidObject, enum @ref
+ * esp::physics::MotionType, enum @ref esp::physics::RigidObjectType, struct
+ * @ref VelocityControl
+ */
 
 #include <Corrade/Containers/Optional.h>
 #include <Corrade/Containers/Reference.h>
-#include <Magnum/DebugTools/ForceRenderer.h>
 #include "esp/assets/Asset.h"
-#include "esp/assets/Attributes.h"
 #include "esp/assets/BaseMesh.h"
-#include "esp/assets/FRLInstanceMeshData.h"
-#include "esp/assets/GenericInstanceMeshData.h"
-#include "esp/assets/MeshData.h"
-#include "esp/core/esp.h"
+#include "esp/assets/GenericSemanticMeshData.h"
+#include "esp/assets/ResourceManager.h"
+#include "esp/core/Esp.h"
+#include "esp/core/RigidState.h"
 #include "esp/scene/SceneNode.h"
 
+#include "esp/physics/RigidBase.h"
+
 namespace esp {
+
+namespace assets {
+
+class ResourceManager;
+}  // namespace assets
 namespace physics {
 
-// describes the motion type of an object. ERROR_MOTIONTYPE should never be set
-// and refers to an error (such as a query to non-existing object).
-enum MotionType { ERROR_MOTIONTYPE, STATIC, KINEMATIC, DYNAMIC };
-
-enum RigidObjectType { NONE, SCENE, OBJECT };
-
-class RigidObject : public scene::SceneNode {
+/**@brief Convenience struct for applying constant velocity control to a rigid
+ * body. */
+struct VelocityControl {
  public:
-  RigidObject(scene::SceneNode* parent);
+  virtual ~VelocityControl() = default;
 
-  // TODO: Currently a RigidObject is either a scene
-  // or an object, but cannot be both (tracked by _isScene/_isObject_)
-  // there is probably a better way to abstract this
-  virtual bool initializeScene(
-      const assets::PhysicsSceneAttributes& physicsSceneAttributes,
-      const std::vector<assets::CollisionMeshData>& meshGroup);
+  /**@brief Constant linear velocity. */
+  Magnum::Vector3 linVel;
+  /**@brief Constant angular velocity. */
+  Magnum::Vector3 angVel;
+  /**@brief Whether or not to set linear control velocity before stepping. */
+  bool controllingLinVel = false;
+  /**
+   * @brief Whether or not to set linear control velocity in local space.
+   * Useful for commanding actions such as "forward", or "strafe".
+   */
+  bool linVelIsLocal = false;
 
-  virtual bool initializeObject(
-      const assets::PhysicsObjectAttributes& physicsObjectAttributes,
-      const std::vector<assets::CollisionMeshData>& meshGroup);
+  /**@brief Whether or not to set angular control velocity before stepping. */
+  bool controllingAngVel = false;
 
-  ~RigidObject(){};
+  /**
+   * @brief Whether or not to set angular control velocity in local space.
+   * Useful for commanding actions such as "roll" and "yaw".
+   */
+  bool angVelIsLocal = false;
 
-  //! Check whether object is being actively simulated, or sleeping
-  virtual bool isActive();
-  virtual void setActive(){};
+  /**
+   * @brief Compute the result of applying constant control velocities to the
+   * provided object transform.
+   *
+   * For efficiency this function does not support transforms with scaling.
+   *
+   * Default implementation uses explicit Euler integration.
+   * @param dt The discrete timestep over which to integrate.
+   * @param rigidState The initial state of the object before
+   * applying velocity control.
+   * @return The new state of the object after applying velocity control over
+   * dt.
+   */
+  virtual core::RigidState integrateTransform(
+      float dt,
+      const core::RigidState& rigidState);
 
-  // attempt to set the motion type. Return false=failure, true=success.
-  virtual bool setMotionType(MotionType mt);
-  const MotionType getMotionType() { return objectMotionType_; };
+  ESP_SMART_POINTERS(VelocityControl)
+};
 
-  //! Force interaction
-  virtual void applyForce(const Magnum::Vector3& force,
-                          const Magnum::Vector3& relPos);
-  // Impulse Force interaction
-  virtual void applyImpulse(const Magnum::Vector3& impulse,
-                            const Magnum::Vector3& relPos);
+/**
+ * @brief A @ref RigidBase representing an individual rigid object instance
+ * attached to a SceneNode, updating its state through simulation. This may be a
+ * @ref esp::physics::MotionType::STATIC scene collision geometry or an object
+ * of any @ref MotionType which can interact with other members of a physical
+ * world. Must have a collision mesh. By default, a RigidObject is @ref
+ * MotionType::KINEMATIC without an underlying simulator implementation. Derived
+ * classes can be used to introduce specific implementations of dynamics.
+ */
+class RigidObject : public RigidBase {
+ public:
+  /**
+   * @brief Constructor for a @ref esp::physics::RigidObject.
+   * @param rigidBodyNode The @ref scene::SceneNode this feature will be
+   * attached to.
+   */
+  RigidObject(scene::SceneNode* rigidBodyNode,
+              int objectId,
+              const assets::ResourceManager& resMgr);
 
-  //! Torque interaction
-  virtual void applyTorque(const Magnum::Vector3& torque);
-  // Impulse Torque interaction
-  virtual void applyImpulseTorque(const Magnum::Vector3& impulse);
+  /**
+   * @brief Virtual destructor for a @ref esp::physics::RigidObject.
+   */
+  ~RigidObject() override = default;
 
-  //! (Prototype) For visualizing & debugging
-  void debugForce(Magnum::SceneGraph::DrawableGroup3D& debugDrawables);
-  //! (Prototype) For visualizing & debugging
-  void setDebugForce(Magnum::Vector3& force);
+  /**
+   * @brief Initializes the @ref esp::physics::RigidObject that inherits from
+   * this class
+   * @param initAttributes The template structure defining relevant
+   * physical parameters for this object
+   * @return true if initialized successfully, false otherwise.
+   */
+  bool initialize(metadata::attributes::AbstractObjectAttributes::ptr
+                      initAttributes) override;
 
-  virtual bool removeObject();
+  /**
+   * @brief Finalize the creation of the RigidObject.
+   * @return whether successful finalization.
+   */
+  bool finalizeObject() override;
 
-  // ==== Transformations ===
-  //! Need to overwrite a bunch of functions to update physical states
-  virtual SceneNode& setTransformation(const Magnum::Matrix4& transformation);
-  virtual SceneNode& setTranslation(const Magnum::Vector3& vector);
-  virtual SceneNode& setRotation(const Magnum::Quaternion& quaternion);
+  /**
+   * @brief Get a copy of the template used to initialize this object.
+   *
+   * @return A copy of the @ref esp::metadata::attributes::ObjectAttributes
+   * template used to create this object.
+   */
+  std::shared_ptr<metadata::attributes::ObjectAttributes>
+  getInitializationAttributes() const {
+    return RigidBase::getInitializationAttributes<
+        metadata::attributes::ObjectAttributes>();
+  };
 
-  virtual SceneNode& resetTransformation();
-  virtual SceneNode& translate(const Magnum::Vector3& vector);
-  virtual SceneNode& translateLocal(const Magnum::Vector3& vector);
+ private:
+  /**
+   * @brief Finalize the initialization of this @ref esp::physics::RigidObject's
+   * geometry. This is overridden by inheriting class specific to certain
+   * physics libraries. Necessary to support kinematic objects without any
+   * dynamics support.
+   * @return true if initialized successfully, false otherwise.
+   */
+  bool initialization_LibSpecific() override;
 
-  virtual SceneNode& rotate(const Magnum::Rad angleInRad,
-                            const Magnum::Vector3& normalizedAxis);
-  virtual SceneNode& rotateLocal(const Magnum::Rad angleInRad,
-                                 const Magnum::Vector3& normalizedAxis);
+  /**
+   * @brief any physics-lib-specific finalization code that needs to be run
+   * after @ref RigidObject is created. Overridden by inheriting class specific
+   * to certain physics libraries. Necessary to support kinematic objects
+   * without any dynamics support.
+   * @return whether successful finalization.
+   */
+  bool finalizeObject_LibSpecific() override { return true; }
 
-  virtual SceneNode& rotateX(const Magnum::Rad angleInRad);
-  virtual SceneNode& rotateY(const Magnum::Rad angleInRad);
-  virtual SceneNode& rotateZ(const Magnum::Rad angleInRad);
-  virtual SceneNode& rotateXLocal(const Magnum::Rad angleInRad);
-  virtual SceneNode& rotateYLocal(const Magnum::Rad angleInRad);
-  virtual SceneNode& rotateZLocal(const Magnum::Rad angleInRad);
+ public:
+  /**
+   * @brief Set whether this object is COM corrected, which determines how the
+   * intial transformation is applied when placing the object.
+   */
 
-  // ==== Getter/Setter functions ===
-  //! For kinematic objects they are dummies, for dynamic objects
-  //! implemented in physics-engine specific ways
-  virtual const double getMass() { return 0.0; }
-  virtual const double getScale() { return 0.0; }
-  virtual const double getFrictionCoefficient() { return 0.0; }
-  virtual const double getRestitutionCoefficient() { return 0.0; }
-  virtual const double getLinearDamping() { return 0.0; }
-  virtual const double getAngularDamping() { return 0.0; }
-  virtual const Magnum::Vector3 getCOM();
-  // Get local inertia
-  virtual const Magnum::Vector3 getInertiaVector();
-  virtual const Magnum::Matrix3 getInertiaMatrix();
+  void setIsCOMCorrected(bool _isCOMCorrected) {
+    isCOMCorrected_ = _isCOMCorrected;
+  }
 
-  virtual void setMass(const double mass){};
-  virtual void setCOM(const Magnum::Vector3& COM){};
-  virtual void setInertia(const Magnum::Vector3& inertia){};
-  virtual void setScale(const double scale){};
-  virtual void setFrictionCoefficient(const double frictionCoefficient){};
-  virtual void setRestitutionCoefficient(const double restitutionCoefficient){};
-  virtual void setLinearDamping(const double linearDamping){};
-  virtual void setAngularDamping(const double angularDamping){};
+  /**
+   * @brief Reverses the COM correction transformation for objects that require
+   * it. Currently a simple passthrough for stages and Articulated Objects.
+   */
+  Magnum::Vector3 getUncorrectedTranslation() const override {
+    auto translation = getTranslation();
+    auto rotation = getRotation();
+    if (isCOMCorrected_) {
+      translation += rotation.transformVector(visualNode_->translation());
+    }
+    return translation;
+  }
 
-  // public Attributes object for user convenience.
-  assets::Attributes attributes_;
+  /**
+   * @brief Set the @ref MotionType of the object. If the object is @ref
+   * ObjectType::SCENE it can only be @ref esp::physics::MotionType::STATIC. If
+   * the object is
+   * @ref ObjectType::OBJECT is can also be set to @ref
+   * esp::physics::MotionType::KINEMATIC. Only if a dervied @ref PhysicsManager
+   * implementing dynamics is in use can the object be set to @ref
+   * esp::physics::MotionType::DYNAMIC.
+   * @param mt The desirved @ref MotionType.
+   * @return true if successfully set, false otherwise.
+   */
+  void setMotionType(MotionType mt) override;
+
+  /**
+   * @brief Retrieves a reference to the VelocityControl struct for this object.
+   */
+  VelocityControl::ptr getVelocityControl() { return velControl_; };
+
+  /**
+   * @brief Set the object's state from a @ref
+   * esp::metadata::attributes::SceneObjectInstanceAttributes
+   */
+  void resetStateFromSceneInstanceAttr() override;
 
  protected:
-  MotionType objectMotionType_;
-  RigidObjectType rigidObjectType_ = NONE;
+  /**
+   * @brief Whether or not this object's placement should be COM corrected.
+   */
+  bool isCOMCorrected_ = false;
 
-  // used only if isObject_
-  // assets::PhysicsObjectMetaData physicsObjectMetaData_;
+  /**
+   * @brief Convenience variable: specifies a constant control velocity (linear
+   * | angular) applied to the rigid body before each step.
+   */
+  VelocityControl::ptr velControl_;
 
-  //! Needed after changing the pose from Magnum side
-  //! Not exposed to end user
-  virtual void syncPose();
-
+ public:
   ESP_SMART_POINTERS(RigidObject)
-};
+};  // class RigidObject
 
 }  // namespace physics
 }  // namespace esp
+#endif

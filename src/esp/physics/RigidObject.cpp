@@ -3,225 +3,126 @@
 // LICENSE file in the root directory of this source tree.
 
 #include "RigidObject.h"
-#include <Magnum/Math/Range.h>
 
 namespace esp {
 namespace physics {
 
-RigidObject::RigidObject(scene::SceneNode* parent)
-    : scene::SceneNode{*parent} {}
+RigidObject::RigidObject(scene::SceneNode* rigidBodyNode,
+                         int objectId,
+                         const assets::ResourceManager& resMgr)
+    : RigidBase(rigidBodyNode, objectId, resMgr),
+      velControl_(VelocityControl::create()) {}
 
-bool RigidObject::initializeScene(
-    const assets::PhysicsSceneAttributes& physicsSceneAttributes,
-    const std::vector<assets::CollisionMeshData>& meshGroup) {
-  if (rigidObjectType_ != NONE) {
-    LOG(ERROR) << "Cannot initialized a RigidObject more than once";
+bool RigidObject::initialize(
+    metadata::attributes::AbstractObjectAttributes::ptr initAttributes) {
+  if (initializationAttributes_ != nullptr) {
+    ESP_ERROR() << "Cannot initialize a RigidObject more than once";
     return false;
   }
 
-  //! Turn on scene flag
-  rigidObjectType_ = SCENE;
-  objectMotionType_ = STATIC;
+  // save the copy of the template used to create the object at initialization
+  // time
+  setUserAttributes(initAttributes->getUserConfiguration());
+  initializationAttributes_ = std::move(initAttributes);
 
-  return true;
-}
+  return initialization_LibSpecific();
+}  // RigidObject::initialize
 
-bool RigidObject::initializeObject(
-    const assets::PhysicsObjectAttributes& physicsObjectAttributes,
-    const std::vector<assets::CollisionMeshData>& meshGroup) {
-  // TODO (JH): Handling static/kinematic object type
-  if (rigidObjectType_ != NONE) {
-    LOG(ERROR) << "Cannot initialized a RigidObject more than once";
-    return false;
+bool RigidObject::finalizeObject() {
+  node().computeCumulativeBB();
+
+  // cast initialization attributes
+  metadata::attributes::ObjectAttributes::cptr ObjectAttributes =
+      std::dynamic_pointer_cast<const metadata::attributes::ObjectAttributes>(
+          initializationAttributes_);
+
+  if (!ObjectAttributes->getComputeCOMFromShape()) {
+    // will be false if the COM is provided; shift by that COM
+    Magnum::Vector3 comShift = -ObjectAttributes->getCOM();
+    // first apply scale
+    comShift = ObjectAttributes->getScale() * comShift;
+    shiftOrigin(comShift);
+  } else {
+    // otherwise use the bounding box center
+    shiftOriginToBBCenter();
   }
 
-  //! Turn on scene flag
-  rigidObjectType_ = OBJECT;
+  // set the visualization semantic id
+  setSemanticId(ObjectAttributes->getSemanticId());
+
+  // finish object by instancing any dynamics library-specific code required
+  return finalizeObject_LibSpecific();
+}  // RigidObject::finalizeObject
+
+bool RigidObject::initialization_LibSpecific() {
   // default kineamtic unless a simulator is initialized...
-  objectMotionType_ = KINEMATIC;
-
+  objectMotionType_ = MotionType::KINEMATIC;
   return true;
+}  // RigidObject::initialization_LibSpecific
+
+void RigidObject::setMotionType(MotionType mt) {
+  if (mt != MotionType::DYNAMIC) {
+    // can't set DYNAMIC without a dynamics engine.
+    objectMotionType_ = mt;
+  }
 }
 
-bool RigidObject::removeObject() {
-  return true;
-}
+void RigidObject::resetStateFromSceneInstanceAttr() {
+  auto sceneInstanceAttr = getInitObjectInstanceAttr();
+  if (!sceneInstanceAttr) {
+    return;
+  }
+  // set object's location and rotation based on translation and rotation
+  // params specified in instance attributes
+  auto translate = sceneInstanceAttr->getTranslation();
+  auto rotation = sceneInstanceAttr->getRotation();
+  // This was set when object was created, based on whether or not the object
+  // should be centered at COM or via Asset Local origin.
+  if (isCOMCorrected_) {
+    // if default COM correction is set and no object-based override, or if
+    // Object set to correct for COM.
+    translate -= rotation.transformVector(visualNode_->translation());
+  }
+  setTranslation(translate);
+  setRotation(rotation);
 
-bool RigidObject::isActive() {
-  // NOTE: no active objects without a physics engine... (kinematics don't
-  // count)
-  return false;
-}
+  // set object's motion type if different than set value
+  const physics::MotionType attrObjMotionType =
+      static_cast<physics::MotionType>(sceneInstanceAttr->getMotionType());
+  if (attrObjMotionType != physics::MotionType::UNDEFINED) {
+    this->setMotionType(attrObjMotionType);
+  }
+}  // RigidObject::resetStateFromSceneInstanceAttr
 
-bool RigidObject::setMotionType(MotionType mt) {
-  if (rigidObjectType_ == OBJECT) {
-    if (mt != DYNAMIC) {
-      objectMotionType_ = mt;
-      return true;
+//////////////////
+// VelocityControl
+
+core::RigidState VelocityControl::integrateTransform(
+    const float dt,
+    const core::RigidState& rigidState) {
+  core::RigidState newRigidState(rigidState);
+  // linear first
+  if (controllingLinVel) {
+    if (linVelIsLocal) {
+      newRigidState.translation =
+          rigidState.translation +
+          rigidState.rotation.transformVector(linVel * dt);
     } else {
-      return false;  // can't set DYNAMIC without a dynamics engine.
+      newRigidState.translation = rigidState.translation + (linVel * dt);
     }
-  } else if (rigidObjectType_ == SCENE) {
-    return mt == STATIC;  // only option and default option
   }
-  return false;
-}
 
-void RigidObject::applyForce(const Magnum::Vector3& force,
-                             const Magnum::Vector3& relPos) {
-  // without a physics engine we can't apply any forces...
-  return;
-}
-
-void RigidObject::applyImpulse(const Magnum::Vector3& impulse,
-                               const Magnum::Vector3& relPos) {
-  // without a physics engine we can't apply any forces...
-  return;
-}
-
-//! Torque interaction
-void RigidObject::applyTorque(const Magnum::Vector3& torque) {
-  return;
-}
-// Impulse Torque interaction
-void RigidObject::applyImpulseTorque(const Magnum::Vector3& impulse) {
-  return;
-}
-
-void RigidObject::syncPose() {
-  return;
-}
-
-scene::SceneNode& RigidObject::setTransformation(
-    const Magnum::Matrix4& transformation) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::setTransformation(transformation);
-    syncPose();
+  // then angular
+  if (controllingAngVel && angVel != Magnum::Vector3{0.0}) {
+    Magnum::Vector3 globalAngVel{angVel};
+    if (angVelIsLocal) {
+      globalAngVel = rigidState.rotation.transformVector(angVel);
+    }
+    Magnum::Quaternion q = Magnum::Quaternion::rotation(
+        Magnum::Rad{(globalAngVel * dt).length()}, globalAngVel.normalized());
+    newRigidState.rotation = (q * rigidState.rotation).normalized();
   }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::setTranslation(const Magnum::Vector3& vector) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::setTranslation(vector);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::setRotation(
-    const Magnum::Quaternion& quaternion) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::setRotation(quaternion);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::resetTransformation() {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::resetTransformation();
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::translate(const Magnum::Vector3& vector) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::translate(vector);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::translateLocal(const Magnum::Vector3& vector) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::translateLocal(vector);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotate(const Magnum::Rad angleInRad,
-                                      const Magnum::Vector3& normalizedAxis) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotate(angleInRad, normalizedAxis);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateLocal(
-    const Magnum::Rad angleInRad,
-    const Magnum::Vector3& normalizedAxis) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateLocal(angleInRad, normalizedAxis);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateX(const Magnum::Rad angleInRad) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateX(angleInRad);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateXLocal(const Magnum::Rad angleInRad) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateXLocal(angleInRad);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateY(const Magnum::Rad angleInRad) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateY(angleInRad);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateYLocal(const Magnum::Rad angleInRad) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateYLocal(angleInRad);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateZ(const Magnum::Rad angleInRad) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateZ(angleInRad);
-    syncPose();
-  }
-  return *this;
-}
-
-scene::SceneNode& RigidObject::rotateZLocal(const Magnum::Rad angleInRad) {
-  if (objectMotionType_ != STATIC) {
-    scene::SceneNode::rotateZLocal(angleInRad);
-    syncPose();
-  }
-  return *this;
-}
-
-const Magnum::Vector3 RigidObject::getCOM() {
-  const Magnum::Vector3 com = Magnum::Vector3();
-  return com;
-}
-
-const Magnum::Vector3 RigidObject::getInertiaVector() {
-  const Magnum::Vector3 inertia = Magnum::Vector3();
-  return inertia;
-}
-
-const Magnum::Matrix3 RigidObject::getInertiaMatrix() {
-  const Magnum::Matrix3 inertia = Magnum::Matrix3();
-  return inertia;
+  return newRigidState;
 }
 
 }  // namespace physics

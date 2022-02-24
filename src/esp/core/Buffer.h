@@ -2,9 +2,12 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_CORE_BUFFER_H_
+#define ESP_CORE_BUFFER_H_
 
-#include "esp/core/esp.h"
+#include <Corrade/Containers/Array.h>
+
+#include "esp/core/Esp.h"
 
 namespace esp {
 namespace core {
@@ -26,12 +29,11 @@ enum class DataType {
 
 class Buffer {
  public:
-  explicit Buffer(){};
-  explicit Buffer(const std::vector<size_t> shape, const DataType dataType) {
-    this->shape = shape;
-    this->dataType = dataType;
+  explicit Buffer() = default;
+  explicit Buffer(const std::vector<size_t>& shape, const DataType dataType)
+      : dataType(dataType), shape(shape) {
     alloc();
-  };
+  }
   void clear();
   virtual ~Buffer() { dealloc(); }
 
@@ -40,8 +42,7 @@ class Buffer {
   void dealloc();
 
  public:
-  void* data = nullptr;
-  size_t totalBytes = 0;
+  Corrade::Containers::Array<uint8_t> data;
   size_t totalSize = 0;
   DataType dataType = DataType::DT_UINT8;
   std::vector<size_t> shape;
@@ -51,3 +52,5 @@ class Buffer {
 
 }  // namespace core
 }  // namespace esp
+
+#endif  // ESP_CORE_BUFFER_H_

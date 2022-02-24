@@ -2,16 +2,19 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_SCENE_SEMANTICSCENE_H_
+#define ESP_SCENE_SEMANTICSCENE_H_
 
+#include <Corrade/Utility/Directory.h>
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "esp/core/esp.h"
+#include "esp/core/Esp.h"
 #include "esp/geo/OBB.h"
+#include "esp/io/Json.h"
 
 namespace esp {
 namespace scene {
@@ -19,7 +22,7 @@ namespace scene {
 //! Represents a semantic category
 class SemanticCategory {
  public:
-  virtual ~SemanticCategory() {}
+  virtual ~SemanticCategory() = default;
   //! Return index of SemanticCategory under given mapping
   virtual int index(const std::string& mapping = "") const = 0;
   //! Return name of SemanticCategory under given mapping
@@ -37,7 +40,7 @@ class SemanticLevel;
 //! levels, regions and objects
 class SemanticScene {
  public:
-  ~SemanticScene() { LOG(INFO) << "Deconstructing SemanticScene"; }
+  ~SemanticScene() { ESP_DEBUG() << "Deconstructing SemanticScene"; }
   //! return axis aligned bounding box of this House
   box3f aabb() const { return bbox_; }
 
@@ -80,19 +83,200 @@ class SemanticScene {
     }
   }
 
-  //! load SemanticScene from a Matterport3D House format filename
+  /**
+   * @brief Attempt to load SemanticScene descriptor from an unknown file type.
+   * @param filename the name of the semantic scene descriptor (house file) to
+   * attempt to load
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully loaded
+   */
+  static bool loadSemanticSceneDescriptor(
+      const std::string& filename,
+      SemanticScene& scene,
+      const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                    geo::ESP_GRAVITY));
+
+  /**
+   * @brief Attempt to load SemanticScene from a Gibson dataset house format
+   * file
+   * @param filename the name of the semantic scene descriptor (house file) to
+   * attempt to load
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully loaded
+   */
+  static bool loadGibsonHouse(
+      const std::string& filename,
+      SemanticScene& scene,
+      const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                    geo::ESP_GRAVITY));
+
+  /**
+   * @brief Attempt to load SemanticScene from a HM3D dataset house
+   * format file
+   * @param filename the name of the semantic scene descriptor (house file) to
+   * attempt to load
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load (currently
+   * not used for HM3D)
+   * @return successfully loaded
+   */
+  static bool loadHM3DHouse(const std::string& filename,
+                            SemanticScene& scene,
+                            CORRADE_UNUSED const quatf& rotation =
+                                quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                      geo::ESP_GRAVITY));
+
+  /**
+   * @brief Attempt to load SemanticScene from a Matterport3D dataset house
+   * format file
+   * @param filename the name of the semantic scene descriptor (house file) to
+   * attempt to load
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully loaded
+   */
   static bool loadMp3dHouse(
       const std::string& filename,
       SemanticScene& scene,
       const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
                                                     geo::ESP_GRAVITY));
 
-  //! load SemanticScene from a SUNCG house format file
-  static bool loadSuncgHouse(const std::string& filename,
-                             SemanticScene& scene,
-                             const quatf& rotation = quatf::Identity());
+  /**
+   * @brief Attempt to load SemanticScene from a Replica dataset house format
+   * file
+   * @param filename the name of the semantic scene descriptor (house file) to
+   * attempt to load
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully loaded
+   */
+  static bool loadReplicaHouse(
+      const std::string& filename,
+      SemanticScene& scene,
+      const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                    geo::ESP_GRAVITY));
+
+  /**
+   * @brief Whether the source file assigns colors to verts for Semantic Mesh.
+   */
+  bool hasVertColorsDefined() const { return hasVertColors_; }
+
+  /**
+   * @brief return a read-only reference to the semantic color map, where value
+   * is annotation color and index corresponds to id for that color. (HM3D only
+   * currently)
+   */
+  const std::vector<Mn::Vector3ub>& getSemanticColorMap() const {
+    return semanticColorMapBeingUsed_;
+  }
+
+  /**
+   * @brief return a read-only reference to a mapping of semantic
+   * color-as-integer to id and region id.(HM3D only currently)
+   */
+  const std::unordered_map<uint32_t, std::pair<int, int>>&
+  getSemanticColorToIdAndRegionMap() const {
+    return semanticColorToIdAndRegion_;
+  }
+
+  /**
+   * @Brief whether or not we should build bounding boxes around vertex
+   * annotations on semantic asset load. Currently used for HM3D.
+   */
+
+  bool buildBBoxFromVertColors() const { return needBBoxFromVertColors; }
 
  protected:
+  /**
+   * @brief Verify a requested file exists.
+   * @param filename the file to attempt to load
+   * @param srcFunc calling function name to be displayed in failure message
+   * @return whether found or not
+   */
+  static bool checkFileExists(const std::string& filename,
+                              const std::string& srcFunc) {
+    if (!Cr::Utility::Directory::exists(filename)) {
+      ESP_WARNING(Mn::Debug::Flag::NoSpace)
+          << "::" << srcFunc << ": File" << filename
+          << "does not exist.  Aborting load.";
+      return false;
+    }
+    return true;
+  }  // checkFileExists
+
+  /**
+   * @brief Build the HM3D semantic data from the passed file stream.  File
+   * being streamed is expected to be appropriate format.
+   * @param ifs The opened file stream describing the HM3D semantic annotations.
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load (currently
+   * not used for HM3D)
+   * @return successfully built. Currently only returns true, but retaining
+   * return value for future support.
+   */
+  static bool buildHM3DHouse(std::ifstream& ifs,
+                             SemanticScene& scene,
+                             CORRADE_UNUSED const quatf& rotation =
+                                 quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                       geo::ESP_GRAVITY));
+  /**
+   * @brief Build the mp3 semantic data from the passed file stream. File being
+   * streamed is expected to be appropriate format.
+   * @param ifs The opened file stream describing the Mp3d semantic annotations.
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully built. Currently only returns true, but retaining
+   * return value for future support.
+   */
+  static bool buildMp3dHouse(
+      std::ifstream& ifs,
+      SemanticScene& scene,
+      const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                    geo::ESP_GRAVITY));
+
+  /**
+   * @brief Build SemanticScene from a Gibson dataset house JSON. JSON is
+   * expected to have been verified already.
+   * @param jsonDoc the JSON document describing the semantic annotations.
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully built. Currently only returns true, but retaining
+   * return value for future support.
+   */
+  static bool buildGibsonHouse(
+      const io::JsonDocument& jsonDoc,
+      SemanticScene& scene,
+      const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                    geo::ESP_GRAVITY));
+
+  /**
+   * @brief Build SemanticScene from a Replica dataset house JSON. JSON is
+   * expected to have been verified already.
+   * @param jsonDoc the JSON document describing the semantic annotations.
+   * @param scene reference to sceneNode to assign semantic scene to
+   * @param objectsExist whether objects cell exists in json. This cell will not
+   * exist in ReplicaCAD semantic lexicon.
+   * @param rotation rotation to apply to semantic scene upon load.
+   * @return successfully built. Currently only returns true, but retaining
+   * return value for future support.
+   */
+  static bool buildReplicaHouse(
+      const io::JsonDocument& jsonDoc,
+      SemanticScene& scene,
+      bool objectsExist,
+      const quatf& rotation = quatf::FromTwoVectors(-vec3f::UnitZ(),
+                                                    geo::ESP_GRAVITY));
+
+  // Currently only supported by HM3D semantic files.
+  bool hasVertColors_ = false;
+
+  /**
+   * @Brief whether or not we should build bounding boxes around vertex
+   * annotations on semantic asset load. Currently used for HM3D.
+   */
+  bool needBBoxFromVertColors = false;
   std::string name_;
   std::string label_;
   box3f bbox_;
@@ -103,6 +287,17 @@ class SemanticScene {
   std::vector<std::shared_ptr<SemanticObject>> objects_;
   //! map from combined region-segment id to objectIndex for semantic mesh
   std::unordered_map<int, int> segmentToObjectIndex_;
+  /**
+   * @brief List of mapped vertex colors, where index corresponds to object
+   * Index/semantic ID (HM3D only currently)
+   */
+  std::vector<Mn::Vector3ub> semanticColorMapBeingUsed_{};
+  /**
+   * @brief Map of integer color to segment and region ids. Used for
+   * transforming provided vertex colors. (HM3D only currently)
+   */
+  std::unordered_map<uint32_t, std::pair<int, int>>
+      semanticColorToIdAndRegion_{};
 
   ESP_SMART_POINTERS(SemanticScene)
 };
@@ -110,6 +305,7 @@ class SemanticScene {
 //! Represents a level of a SemanticScene
 class SemanticLevel {
  public:
+  virtual ~SemanticLevel() = default;
   virtual std::string id() const { return std::to_string(index_); }
 
   const std::vector<std::shared_ptr<SemanticRegion>>& regions() const {
@@ -123,7 +319,7 @@ class SemanticLevel {
   box3f aabb() const { return bbox_; }
 
  protected:
-  int index_;
+  int index_{};
   std::string labelCode_;
   vec3f position_;
   box3f bbox_;
@@ -136,6 +332,7 @@ class SemanticLevel {
 //! Represents a region (typically room) in a level of a house
 class SemanticRegion {
  public:
+  virtual ~SemanticRegion() = default;
   virtual std::string id() const {
     if (level_ != nullptr) {
       return level_->id() + "_" + std::to_string(index_);
@@ -143,8 +340,8 @@ class SemanticRegion {
       return "_" + std::to_string(index_);
     }
   }
-
-  const SemanticLevel::ptr level() const { return level_; }
+  int getIndex() const { return index_; }
+  SemanticLevel::ptr level() const { return level_; }
 
   const std::vector<std::shared_ptr<SemanticObject>>& objects() const {
     return objects_;
@@ -152,11 +349,11 @@ class SemanticRegion {
 
   box3f aabb() const { return bbox_; }
 
-  const SemanticCategory::ptr category() const { return category_; }
+  SemanticCategory::ptr category() const { return category_; }
 
  protected:
-  int index_;
-  int parentIndex_;
+  int index_{};
+  int parentIndex_{};
   std::shared_ptr<SemanticCategory> category_;
   vec3f position_;
   box3f bbox_;
@@ -171,6 +368,7 @@ class SemanticRegion {
 //! Represents a distinct semantically annotated object
 class SemanticObject {
  public:
+  virtual ~SemanticObject() = default;
   virtual std::string id() const {
     if (region_ != nullptr) {
       return region_->id() + "_" + std::to_string(index_);
@@ -179,17 +377,57 @@ class SemanticObject {
     }
   }
 
-  const SemanticRegion::ptr region() const { return region_; }
+  /**
+   * @brief Retrieve the unique semantic ID corresponding to this object
+   */
+  int semanticID() const { return index_; }
+
+  SemanticRegion::ptr region() const { return region_; }
 
   box3f aabb() const { return obb_.toAABB(); }
 
   geo::OBB obb() const { return obb_; }
 
-  const SemanticCategory::ptr category() const { return category_; }
+  SemanticCategory::ptr category() const { return category_; }
+
+  void setObb(const esp::vec3f& center,
+              const esp::vec3f& dimensions,
+              const esp::quatf& rotation = quatf::Identity()) {
+    obb_ = geo::OBB{center, dimensions, rotation};
+  }
+
+  Mn::Vector3ub getColor() const { return color_; }
+
+  void setColor(Mn::Vector3ub _color) {
+    color_ = _color;
+    // update colorAsInt_
+    colorAsInt_ = (unsigned(color_[0]) << 16) | (unsigned(color_[1]) << 8) |
+                  unsigned(color_[2]);
+  }
+
+  unsigned getColorAsInt() const { return colorAsInt_; }
+
+  void setColorAsInt(const unsigned _colorAsInt) {
+    colorAsInt_ = _colorAsInt;
+    // update color_ vector
+    color_ = {uint8_t((colorAsInt_ >> 16) & 0xff),
+              uint8_t((colorAsInt_ >> 8) & 0xff), uint8_t(colorAsInt_ & 0xff)};
+  }
 
  protected:
-  int index_;
-  int parentIndex_;
+  /**
+   * @brief The unique semantic ID corresponding to this object
+   */
+  int index_{};
+  // specified color for this object instance.
+  Mn::Vector3ub color_{};
+  // specified color as unsigned int
+  unsigned colorAsInt_{};
+
+  /**
+   * @brief References the parent region for this object
+   */
+  int parentIndex_{};
   std::shared_ptr<SemanticCategory> category_;
   geo::OBB obb_;
   std::shared_ptr<SemanticRegion> region_;
@@ -199,3 +437,5 @@ class SemanticObject {
 
 }  // namespace scene
 }  // namespace esp
+
+#endif  // ESP_SCENE_SEMANTICSCENE_H_

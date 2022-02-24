@@ -2,11 +2,13 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_GFX_GENERICDRAWABLE_H_
+#define ESP_GFX_GENERICDRAWABLE_H_
 
-#include <Magnum/Shaders/Shaders.h>
+#include <Magnum/Shaders/PhongGL.h>
 
-#include "Drawable.h"
+#include "esp/gfx/Drawable.h"
+#include "esp/gfx/ShaderManager.h"
 
 namespace esp {
 namespace gfx {
@@ -14,24 +16,42 @@ namespace gfx {
 class GenericDrawable : public Drawable {
  public:
   //! Create a GenericDrawable for the given object using shader and mesh.
-  //! Adds drawable to given group and uses provided texture, objectId, and
-  //! color for textured, object id buffer and color shader output respectively
+  //! Adds drawable to given group and uses provided texture, and
+  //! color for textured buffer and color shader output respectively
   explicit GenericDrawable(scene::SceneNode& node,
-                           Magnum::Shaders::Flat3D& shader,
-                           Magnum::GL::Mesh& mesh,
-                           Magnum::SceneGraph::DrawableGroup3D* group = nullptr,
-                           Magnum::GL::Texture2D* texture = nullptr,
-                           int objectId = ID_UNDEFINED,
-                           const Magnum::Color4& color = Magnum::Color4{1});
+                           Magnum::GL::Mesh* mesh,
+                           Drawable::Flags& meshAttributeFlags,
+                           ShaderManager& shaderManager,
+                           const Magnum::ResourceKey& lightSetupKey,
+                           const Magnum::ResourceKey& materialDataKey,
+                           DrawableGroup* group = nullptr);
+
+  void setLightSetup(const Magnum::ResourceKey& lightSetupKey) override;
+  static constexpr const char* SHADER_KEY_TEMPLATE = "Phong-lights={}-flags={}";
 
  protected:
-  virtual void draw(const Magnum::Matrix4& transformationMatrix,
-                    Magnum::SceneGraph::Camera3D& camera) override;
+  void draw(const Magnum::Matrix4& transformationMatrix,
+            Magnum::SceneGraph::Camera3D& camera) override;
 
-  Magnum::GL::Texture2D* texture_;
-  int objectId_;
-  Magnum::Color4 color_;
+  void updateShader();
+  void updateShaderLightingParameters(
+      const Magnum::Matrix4& transformationMatrix,
+      Magnum::SceneGraph::Camera3D& camera);
+
+  Magnum::ResourceKey getShaderKey(Magnum::UnsignedInt lightCount,
+                                   Magnum::Shaders::PhongGL::Flags flags) const;
+
+  // shader parameters
+  ShaderManager& shaderManager_;
+  Magnum::Resource<Magnum::GL::AbstractShaderProgram, Magnum::Shaders::PhongGL>
+      shader_;
+  Magnum::Resource<MaterialData, PhongMaterialData> materialData_;
+  Magnum::Resource<LightSetup> lightSetup_;
+
+  Magnum::Shaders::PhongGL::Flags flags_;
 };
 
 }  // namespace gfx
 }  // namespace esp
+
+#endif  // ESP_GFX_GENERICDRAWABLE_H_

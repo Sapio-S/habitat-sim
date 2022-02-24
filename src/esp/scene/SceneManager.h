@@ -2,12 +2,13 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_SCENE_SCENEMANAGER_H_
+#define ESP_SCENE_SCENEMANAGER_H_
 
 #include <memory>
 #include <vector>
 
-#include "esp/core/esp.h"
+#include "esp/core/Esp.h"
 #include "esp/gfx/magnum.h"
 
 #include "SceneGraph.h"
@@ -20,8 +21,8 @@ namespace scene {
 // make SceneManager a singleton class
 class SceneManager {
  public:
-  SceneManager(){};
-  ~SceneManager() { LOG(INFO) << "Deconstructing SceneManager"; }
+  SceneManager() = default;
+  ~SceneManager() { ESP_DEBUG() << "Deconstructing SceneManager"; }
 
   // returns the scene ID
   int initSceneGraph();
@@ -39,3 +40,5 @@ class SceneManager {
 };
 }  // namespace scene
 }  // namespace esp
+
+#endif  // ESP_SCENE_SCENEMANAGER_H_

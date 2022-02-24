@@ -1,12 +1,26 @@
-file(GLOB_RECURSE scene_SOURCES "*.cpp")
+add_library(
+  scene STATIC
+  GibsonSemanticScene.cpp
+  GibsonSemanticScene.h
+  HM3DSemanticScene.cpp
+  HM3DSemanticScene.h
+  Mp3dSemanticScene.cpp
+  Mp3dSemanticScene.h
+  ObjectControls.cpp
+  ObjectControls.h
+  ReplicaSemanticScene.cpp
+  ReplicaSemanticScene.h
+  SceneGraph.cpp
+  SceneGraph.h
+  SceneManager.cpp
+  SceneManager.h
+  SceneNode.cpp
+  SceneNode.h
+  SemanticScene.cpp
+  SemanticScene.h
+)
 
-add_library(scene STATIC ${scene_SOURCES})
-
-target_link_libraries(scene
-  PUBLIC
-    assets
-    core
-    geo
-    gfx
-    io
+target_link_libraries(
+  scene
+  PUBLIC assets core geo gfx io
 )

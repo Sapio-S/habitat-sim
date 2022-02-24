@@ -16,16 +16,41 @@ import os
 import os.path as osp
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+from distutils.util import strtobool
 from distutils.version import StrictVersion
 
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
 
+try:
+    import cmake
+
+    # If the cmake python package is installed, use that exe
+    CMAKE_BIN_DIR = cmake.CMAKE_BIN_DIR
+except ImportError:
+    CMAKE_BIN_DIR = ""
+
+sys.path.insert(0, osp.join(osp.dirname(__file__), "src_python"))
+
 ARG_CACHE_BLACKLIST = {"force_cmake", "cache_args", "inplace"}
 
 
+def str2bool(input_str: str) -> bool:
+    return bool(strtobool(input_str.lower()))
+
+
+def is_pip() -> bool:
+    # This will end with python if driven with python setup.py or PEP517_BUILD_BACKEND will be set
+    return (
+        osp.basename(os.environ.get("_", "/pip/no")).startswith("pip")
+        or os.environ.get("PEP517_BUILD_BACKEND") is not None
+    )
+
+
+# TODO refactor to the proper way to pass options to setup.py so pip can do so.
 def build_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -33,19 +58,37 @@ def build_parser():
     parser.add_argument(
         "--headless",
         dest="headless",
+        default=str2bool(os.environ.get("HEADLESS", str(is_pip()))),
         action="store_true",
         help="""Build in headless mode.
 Use "HEADLESS=True pip install ." to build in headless mode with pip""",
     )
     parser.add_argument(
-        "--bullet",
-        dest="use_bullet",
+        "--with-cuda",
         action="store_true",
-        help="""Build with Bullet simulation engine.""",
+        default=str2bool(os.environ.get("WITH_CUDA", "False")),
+        dest="with_cuda",
+        help="Build CUDA enabled features.  Requires CUDA to be installed",
     )
     parser.add_argument(
-        "--force-cmake",
+        "--bullet",
+        "--with-bullet",
+        dest="with_bullet",
+        default=str2bool(os.environ.get("WITH_BULLET", str(is_pip()))),
+        action="store_true",
+        help="""Build with Bullet simulation engine. Default to True when pip installing.
+ Default value is otherwise false or provided  WITH_BULLET=ON or WITH_BULLET_OFF when doing pip install.""",
+    )
+    parser.add_argument("--no-bullet", dest="with_bullet", action="store_false")
+    parser.add_argument(
+        "--vhacd",
+        dest="with_vhacd",
+        action="store_true",
+        help="""Build with VHACD convex hull decomposition and voxelization engine.""",
+    )
+    parser.add_argument(
         "--cmake",
+        "--force-cmake",
         dest="force_cmake",
         action="store_true",
         help="Forces cmake to be rerun.  This argument is not cached",
@@ -62,19 +105,37 @@ Use "HEADLESS=True pip install ." to build in headless mode with pip""",
     parser.add_argument(
         "--cmake-args",
         type=str,
-        default="",
+        default=os.environ.get("CMAKE_ARGS", ""),
         help="""Additional arguements to be passed to cmake.
 Note that you will need to do `--cmake-args="..."` as `--cmake-args "..."`
 will generally not be parsed correctly
 You may need to use --force-cmake to ensure cmake is rerun with new args.
 Use "CMAKE_ARGS="..." pip install ." to set cmake args with pip""",
     )
-
     parser.add_argument(
         "--no-update-submodules",
         dest="no_update_submodules",
         action="store_true",
         help="Don't update git submodules",
+    )
+    parser.add_argument(
+        "--build-type",
+        dest="build_type",
+        default=None,
+        help="CMake configuration to build with (Release, Debug, etc...)",
+    )
+    parser.add_argument(
+        "--no-lto",
+        dest="lto",
+        default=None,
+        action="store_false",
+        help="Disables Link Time Optimization: faster compile times but worse performance.",
+    )
+    parser.add_argument(
+        "--lto",
+        dest="lto",
+        action="store_true",
+        help="Enables Link Time Optimization: better performance but longer compile time",
     )
 
     parser.add_argument(
@@ -92,6 +153,15 @@ Use "CMAKE_ARGS="..." pip install ." to set cmake args with pip""",
         help="Don't install magnum.  "
         "This is nice for incrementally building for development but "
         "can cause install magnum bindings to fall out-of-sync",
+    )
+
+    parser.add_argument(
+        "--build-basis-compressor",
+        "--basis-compressor",
+        dest="build_basis_compressor",
+        action="store_true",
+        help="Wether or not to build the basis compressor."
+        "  Loading basis compressed meshes does NOT require this.",
     )
     return parser
 
@@ -116,7 +186,7 @@ def in_git():
     try:
         subprocess.check_output(["git", "rev-parse", "--is-inside-work-tree"])
         return True
-    except:
+    except (OSError, subprocess.SubprocessError):
         return False
 
 
@@ -124,13 +194,8 @@ def has_ninja():
     try:
         subprocess.check_output(["ninja", "--version"])
         return True
-    except:
+    except (OSError, subprocess.SubprocessError):
         return False
-
-
-def is_pip():
-    # This will end with python if driven with python setup.py ...
-    return osp.basename(os.environ.get("_", "/pip/no")).startswith("pip")
 
 
 class CMakeExtension(Extension):
@@ -177,6 +242,8 @@ class CMakeBuild(build_ext):
             with open(args_cache_file, "w") as f:
                 json.dump(cache, f, indent=4, sort_keys=True)
 
+        if not os.path.exists(self.build_temp):
+            os.makedirs(self.build_temp)
         # Save the CMake build directory -- that's where the generated setup.py
         # for magnum-bindings will appear which we need to run later
         global _cmake_build_dir
@@ -184,8 +251,8 @@ class CMakeBuild(build_ext):
 
     def run(self):
         try:
-            subprocess.check_output(["cmake", "--version"])
-        except OSError:
+            subprocess.check_output([osp.join(CMAKE_BIN_DIR, "cmake"), "--version"])
+        except (OSError, subprocess.SubprocessError):
             raise RuntimeError(
                 "CMake must be installed to build the following extensions: "
                 + ", ".join(e.name for e in self.extensions)
@@ -207,17 +274,29 @@ class CMakeBuild(build_ext):
 
         cmake_args = [
             "-DBUILD_PYTHON_BINDINGS=ON",
-            
             "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
             "-DPYTHON_EXECUTABLE=" + sys.executable,
             "-DCMAKE_EXPORT_COMPILE_COMMANDS={}".format("OFF" if is_pip() else "ON"),
+            "-DREL_BUILD_RPATH={}".format("OFF" if self.inplace else "ON"),
         ]
+        if args.lto is not None:
+            cmake_args += [
+                "-DCMAKE_INTERPROCEDURAL_OPTIMIZATION={}".format(
+                    "ON" if args.lto else "OFF"
+                )
+            ]
         cmake_args += shlex.split(args.cmake_args)
 
-        cfg = "Debug" if self.debug else "RelWithDebInfo"
-        build_args = ["--config", cfg]
+        build_type = args.build_type
+        assert not (
+            build_type is not None and self.debug
+        ), f"Debug and Build-Type flags conflict: {self.debug}, {build_type}"
+        if build_type is None:
+            build_type = "Debug" if self.debug else "RelWithDebInfo"
+        build_args = ["--config", build_type]
 
-        cmake_args += ["-DCMAKE_BUILD_TYPE=" + cfg]
+        cmake_args += ["-DCMAKE_BUILD_TYPE=" + build_type]
+
         build_args += ["--"]
 
         if has_ninja():
@@ -233,12 +312,30 @@ class CMakeBuild(build_ext):
         cmake_args += [
             "-DBUILD_GUI_VIEWERS={}".format("ON" if not args.headless else "OFF")
         ]
+
+        if sys.platform not in ["darwin", "win32", "win64"]:
+            cmake_args += [
+                # So Magnum itself prefers EGL over GLX for windowless apps.
+                # Makes sense only on platforms with EGL (Linux, BSD, ...).
+                "-DTARGET_HEADLESS={}".format("ON" if args.headless else "OFF")
+            ]
         # NOTE: BUILD_TEST is intentional as opposed to BUILD_TESTS which collides
         # with definition used by some of our dependencies
         cmake_args += ["-DBUILD_TEST={}".format("ON" if args.build_tests else "OFF")]
-        cmake_args += ["-DWITH_BULLET={}".format("ON" if args.use_bullet else "OFF")]
+        cmake_args += [
+            "-DBUILD_WITH_BULLET={}".format("ON" if args.with_bullet else "OFF")
+        ]
+        cmake_args += [
+            "-DBUILD_WITH_VHACD={}".format("ON" if args.with_vhacd else "OFF")
+        ]
         cmake_args += [
             "-DBUILD_DATATOOL={}".format("ON" if args.build_datatool else "OFF")
+        ]
+        cmake_args += ["-DBUILD_WITH_CUDA={}".format("ON" if args.with_cuda else "OFF")]
+        cmake_args += [
+            "-DBUILD_BASIS_COMPRESSOR={}".format(
+                "ON" if args.build_basis_compressor else "OFF"
+            )
         ]
 
         env = os.environ.copy()
@@ -246,15 +343,33 @@ class CMakeBuild(build_ext):
             env.get("CXXFLAGS", ""), self.distribution.get_version()
         )
 
-        if self.run_cmake(cmake_args):
+        if is_pip() or self.run_cmake(cmake_args):
+            os.makedirs(self.build_temp, exist_ok=True)
+            # Remove invalid cmakefiles if is is_pip()
+            for cmake_cache_f in [
+                "CMakeFiles",
+                "CMakeCache.txt",
+                "cmake_install.cmake",
+            ]:
+                cmake_cache_f = osp.join(self.build_temp, cmake_cache_f)
+                if is_pip() and osp.exists(cmake_cache_f):
+                    if osp.isdir(cmake_cache_f):
+                        shutil.rmtree(cmake_cache_f)
+                    else:
+                        os.remove(cmake_cache_f)
             subprocess.check_call(
-                shlex.split("cmake -H{} -B{}".format(ext.sourcedir, self.build_temp))
-                + cmake_args,
+                [osp.join(CMAKE_BIN_DIR, "cmake")]
+                + cmake_args
+                + [osp.realpath(ext.sourcedir)],
                 env=env,
+                cwd=self.build_temp,
             )
 
+        if not is_pip():
+            self.create_compile_commands()
+
         subprocess.check_call(
-            shlex.split("cmake --build {}".format(self.build_temp)) + build_args
+            [osp.join(CMAKE_BIN_DIR, "cmake"), "--build", self.build_temp] + build_args
         )
         print()  # Add an empty line for cleaner output
 
@@ -269,8 +384,6 @@ class CMakeBuild(build_ext):
                     osp.abspath(osp.join(self.build_temp, "utils/viewer/viewer")),
                     link_dst,
                 )
-
-        self.create_compile_commands()
 
     def run_cmake(self, cmake_args):
         if args.force_cmake:
@@ -333,14 +446,7 @@ class CMakeBuild(build_ext):
 if __name__ == "__main__":
     assert StrictVersion(
         "{}.{}".format(sys.version_info[0], sys.version_info[1])
-    ) >= StrictVersion("3.6"), "Must use python3.6 or newer"
-
-    if os.environ.get("HEADLESS", "").lower() == "true":
-        args.headless = True
-
-    if os.environ.get("CMAKE_ARGS", None) is not None:
-        args.cmake_args = os.environ["CMAKE_ARGS"]
-
+    ) >= StrictVersion("3.7"), "Must use python3.7 or newer"
     with open("./requirements.txt", "r") as f:
         requirements = [l.strip() for l in f.readlines() if len(l.strip()) > 0]
 
@@ -353,23 +459,38 @@ if __name__ == "__main__":
         author="FAIR A-STAR",
         description="A high performance simulator for training embodied agents",
         long_description="",
-        packages=find_packages(),
+        packages=find_packages(where="src_python"),
+        package_dir={"": "src_python"},
         install_requires=requirements,
+        tests_require=["hypothesis", "pytest-benchmark", "pytest"],
+        python_requires=">=3.7",
         # add extension module
         ext_modules=[CMakeExtension("habitat_sim._ext.habitat_sim_bindings", "src")],
         # add custom build_ext command
         cmdclass=dict(build_ext=CMakeBuild),
         zip_safe=False,
+        include_package_data=True,
     )
-
     pymagnum_build_dir = osp.join(
         _cmake_build_dir, "deps", "magnum-bindings", "src", "python"
     )
 
-    if not args.skip_install_magnum and not is_pip():
-        subprocess.check_call(shlex.split(f"pip install {pymagnum_build_dir}"))
-    else:
-        print(
-            "Assuming magnum bindings are already installed (or we're inside pip and ¯\\_('-')_/¯)"
+    if (
+        not args.skip_install_magnum
+        and "sdist" not in sys.argv
+        and os.path.exists(pymagnum_build_dir)
+    ):
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", pymagnum_build_dir]
         )
-        print(f"Run 'pip install {pymagnum_build_dir}' if this assumption is incorrect")
+    else:
+        if not os.path.exists(pymagnum_build_dir) and "sdist" not in sys.argv:
+            print(
+                f"{pymagnum_build_dir} does not exist and therefore we cannot install magnum-bindings directly."
+            )
+        print(
+            "Assuming magnum bindings are already installed (or we're inside pip and *\\_('-')_/*)"
+        )
+        print(
+            f"Run '{sys.executable} -m pip install {pymagnum_build_dir}' if this assumption is incorrect"
+        )

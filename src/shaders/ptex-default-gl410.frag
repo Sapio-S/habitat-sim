@@ -1,6 +1,6 @@
 uniform int tileSize;
 uniform int widthInTiles;
-uniform samplerBuffer meshAdjFaces;
+uniform usamplerBuffer meshAdjFaces;
 
 ivec2 FaceToAtlasPos(int faceID, int tileSize) {
   ivec2 tilePos;
@@ -29,7 +29,7 @@ const uint FACE_MASK = 0x3FFFFFFF;
 
 int GetAdjFace(int face, int edge, out int rot) {
   // uint data = meshAdjFaces[face * 4 + edge];
-  uint data = uint(texelFetch(meshAdjFaces, face * 4 + edge));
+  uint data = texelFetch(meshAdjFaces, face * 4 + edge).r;
   rot = int(data >> ROTATION_SHIFT);
   return int(data & FACE_MASK);
 }
@@ -131,8 +131,11 @@ int indexAdjacentFaces(int faceID, inout ivec2 p, int tsize) {
 vec4 texelFetchAtlasAdj(sampler2D tex, int faceID, ivec2 p, int level) {
   int tsize = tileSize >> level;
 
+  // if the target is Mac OSX, the following function is disabled.
+#ifndef CORRADE_TARGET_APPLE
   // fetch from adjacent face if necessary
   faceID = indexAdjacentFaces(faceID, p, tsize);
+#endif
 
   // clamp to tile edge
   p = clamp(p, ivec2(0, 0), ivec2(tsize - 1, tsize - 1));
@@ -155,15 +158,35 @@ vec4 textureAtlas(sampler2D tex, int faceID, vec2 p) {
       f.y);
 }
 
+void applySaturation(inout vec4 c, float saturation) {
+  float Pr = 0.299f;
+  float Pg = 0.587f;
+  float Pb = 0.114f;
+
+  float P = sqrt(c.r * c.r * Pr + c.g * c.g * Pg + c.b * c.b * Pb);
+
+  c.r = P + (c.r - P) * saturation;
+  c.g = P + (c.g - P) * saturation;
+  c.b = P + (c.b - P) * saturation;
+}
+
 layout(location = 0) out vec4 FragColor;
+layout(location = 1) out highp uint fragmentObjectId;
+
 uniform sampler2D atlasTex;
 
 uniform float exposure;
+uniform float gamma;
+uniform float saturation;
+uniform highp uint objectId;
 
 in vec2 uv;
 
 void main() {
   vec4 c = textureAtlas(atlasTex, gl_PrimitiveID, uv * tileSize) * exposure;
-  // c = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-  FragColor = vec4(c.xyz, 1.0f);
+  applySaturation(c, saturation);
+  c.rgb = pow(c.rgb, vec3(gamma));
+  FragColor = vec4(c.rgb, 1.0f);
+
+  fragmentObjectId = objectId;
 }

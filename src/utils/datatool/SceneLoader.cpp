@@ -8,71 +8,71 @@
 #include <string>
 #include <vector>
 
-#include "esp/assets/FRLInstanceMeshData.h"
-#include "esp/assets/GenericInstanceMeshData.h"
-#include "esp/core/esp.h"
-#include "esp/geo/geo.h"
-#include "esp/io/io.h"
-
-#include <sophus/so3.hpp>
+#include <Corrade/Containers/ArrayViewStl.h>
+#include <Corrade/Utility/Algorithms.h>
+#include <Corrade/Utility/Directory.h>
+#include <Corrade/Utility/FormatStl.h>
+#include "esp/assets/GenericSemanticMeshData.h"
+#include "esp/core/Esp.h"
+#include "esp/geo/Geo.h"
 
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/Importer.hpp>
 
+#include <Magnum/EigenIntegration/GeometryIntegration.h>
+#include <Magnum/EigenIntegration/Integration.h>
+#include <Magnum/Trade/AbstractImporter.h>
+
+namespace Cr = Corrade;
+
 namespace esp {
 namespace assets {
 
+SceneLoader::SceneLoader()
+    :
+#ifdef MAGNUM_BUILD_STATIC
+      // avoid using plugins that might depend on different library versions
+      importerManager_("nonexistent")
+#endif
+          {};
+
 MeshData SceneLoader::load(const AssetInfo& info) {
   MeshData mesh;
-  if (!esp::io::exists(info.filepath)) {
-    LOG(ERROR) << "Could not find file " << info.filepath;
+  if (!Cr::Utility::Directory::exists(info.filepath)) {
+    ESP_ERROR() << "Could not find file" << info.filepath;
     return mesh;
   }
 
-  if (info.type == AssetType::FRL_INSTANCE_MESH) {
-    FRLInstanceMeshData instanceMeshData;
-    instanceMeshData.loadPLY(info.filepath);
+  if (info.type == AssetType::INSTANCE_MESH) {
+    Cr::Containers::Pointer<Importer> importer;
+    CORRADE_INTERNAL_ASSERT_OUTPUT(
+        importer = importerManager_.loadAndInstantiate("StanfordImporter"));
+    // dummy colormap
+    std::vector<Magnum::Vector3ub> dummyColormap;
+    Cr::Containers::Optional<Mn::Trade::MeshData> meshData;
 
-    const auto& vbo = instanceMeshData.getVertexBufferObjectCPU();
-    const auto& cbo = instanceMeshData.getColorBufferObjectCPU();
-    const size_t numQuads = vbo.size() / 4;
-    for (size_t iQuad = 0; iQuad < numQuads; ++iQuad) {
-      const size_t quadOffset = 4 * iQuad;
-      for (size_t i = 0; i < 4; ++i) {
-        const size_t vidx = quadOffset + i;
-        mesh.vbo.push_back(vbo[vidx].head<3>());
-        mesh.cbo.push_back(cbo[vidx].cast<float>() / 255.0f);
-      }
-      assert(quadOffset + 3 < mesh.vbo.size());
+    ESP_CHECK(
+        (importer->openFile(info.filepath) && (meshData = importer->mesh(0))),
+        Cr::Utility::formatString(
+            "Error loading instance mesh data from file {}", info.filepath));
 
-      mesh.ibo.push_back(quadOffset + 0);
-      mesh.ibo.push_back(quadOffset + 1);
-      mesh.ibo.push_back(quadOffset + 2);
+    GenericSemanticMeshData::uptr instanceMeshData =
+        GenericSemanticMeshData::buildSemanticMeshData(*meshData, info.filepath,
+                                                       dummyColormap, false);
 
-      mesh.ibo.push_back(quadOffset + 0);
-      mesh.ibo.push_back(quadOffset + 2);
-      mesh.ibo.push_back(quadOffset + 3);
-    }
+    const auto& vbo = instanceMeshData->getVertexBufferObjectCPU();
+    const auto& cbo = instanceMeshData->getColorBufferObjectCPU();
+    const auto& ibo = instanceMeshData->getIndexBufferObjectCPU();
 
-  } else if (info.type == AssetType::INSTANCE_MESH) {
-    GenericInstanceMeshData instanceMeshData;
-    instanceMeshData.loadPLY(info.filepath);
-
-    const auto& vbo = instanceMeshData.getVertexBufferObjectCPU();
-    const auto& cbo = instanceMeshData.getColorBufferObjectCPU();
-    const auto& ibo = instanceMeshData.getIndexBufferObjectCPU();
-    mesh.vbo = vbo;
+    mesh.vbo.resize(vbo.size());
+    Cr::Utility::copy(vbo, Cr::Containers::arrayCast<Mn::Vector3>(
+                               Cr::Containers::arrayView(mesh.vbo)));
+    mesh.ibo = ibo;
     for (const auto& c : cbo) {
-      mesh.cbo.emplace_back(c.cast<float>() / 255.0f);
+      auto clr = Mn::EigenIntegration::cast<esp::vec3uc>(c);
+      mesh.cbo.emplace_back(clr.cast<float>() / 255.0f);
     }
-
-    for (const auto& tri : ibo) {
-      mesh.ibo.push_back(tri[0]);
-      mesh.ibo.push_back(tri[1]);
-      mesh.ibo.push_back(tri[2]);
-    }
-
   } else {
     const aiScene* scene;
     Assimp::Importer Importer;
@@ -124,8 +124,8 @@ MeshData SceneLoader::load(const AssetInfo& info) {
     }  // meshes
   }
 
-  LOG(INFO) << "Loaded " << mesh.vbo.size() << " vertices, " << mesh.ibo.size()
-            << " indices";
+  ESP_DEBUG() << "Loaded" << mesh.vbo.size() << "vertices," << mesh.ibo.size()
+              << "indices";
 
   return mesh;
 };

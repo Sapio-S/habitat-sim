@@ -1,42 +1,41 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
-
 #include "SceneGraph.h"
-#include <Magnum/Math/Algorithms/GramSchmidt.h>
+
+#include <Corrade/Utility/Assert.h>
+#include <Corrade/Utility/Debug.h>
+#include <Corrade/Utility/DebugStl.h>
 
 namespace esp {
 namespace scene {
 
-SceneGraph::SceneGraph()
-    : rootNode_{world_},
-      defaultRenderCameraNode_{rootNode_},
-      defaultRenderCamera_{defaultRenderCameraNode_} {}
+SceneGraph::SceneGraph() : rootNode_{world_} {
+  // For now, just create one drawable group with empty string uuid
+  createDrawableGroup(std::string{});
+}
 
-// set transformation and projection matrix to the default camera
-void SceneGraph::setDefaultRenderCamera(sensor::Sensor& sensor) {
-  ASSERT(sensor.isVisualSensor());
+bool SceneGraph::isRootNode(SceneNode& node) {
+  auto* parent = node.parent();
+  // if the parent is null, it means the node is the world_ node.
+  CORRADE_ASSERT(parent != nullptr,
+                 "SceneGraph::isRootNode: the node is illegal.", false);
+  return (parent->parent() == nullptr);
+}
 
-  Magnum::Matrix4 T = sensor.node().absoluteTransformation();
-  Magnum::Matrix3 R = T.rotationScaling();
-  Magnum::Math::Algorithms::gramSchmidtOrthonormalizeInPlace(R);
+gfx::DrawableGroup* SceneGraph::getDrawableGroup(const std::string& id) {
+  auto it = drawableGroups_.find(id);
+  return it == drawableGroups_.end() ? nullptr : &it->second;
+}
 
-  VLOG(1) << "||R - GS(R)|| = "
-          << Eigen::Map<mat3f>((R - T.rotationShear()).data()).norm();
+const gfx::DrawableGroup* SceneGraph::getDrawableGroup(
+    const std::string& id) const {
+  auto it = drawableGroups_.find(id);
+  return it == drawableGroups_.end() ? nullptr : &it->second;
+}
 
-  T = Magnum::Matrix4::from(R, T.translation()) *
-      Magnum::Matrix4::scaling(T.scaling());
-
-  // set the transformation to the default camera
-  // so that the camera has the correct modelview matrix for rendering;
-  // to do it,
-  // obtain the *absolute* transformation from the sensor node,
-  // apply it as the *relative* transformation between the default camera and
-  // its parent, which is rootNode_.
-  defaultRenderCameraNode_.setTransformation(T);
-
-  // set the projection matrix to the default camera
-  sensor.setProjectionMatrix(defaultRenderCamera_);
+bool SceneGraph::deleteDrawableGroup(const std::string& id) {
+  return drawableGroups_.erase(id) != 0u;
 }
 
 }  // namespace scene

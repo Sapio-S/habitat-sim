@@ -1,10 +1,12 @@
-[tool.isort]
-skip_glob = ["*/deps/*", "*/build/*", "*/obselete/*"]
-known_third_party = ["corrade", "magnum"]
-multi_line_output = 3
-force_grid_wrap = false
-line_length = 88
-include_trailing_comma = true
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+            "cmake",
+            "ninja",
+            "pip",
+            "setuptools",
+            "wheel",
+           ]
 
 [tool.black]
 exclude = '''
@@ -18,6 +20,8 @@ exclude = '''
     | \.venv
     | _build
     | buck-out
+    | ^examples/tutorials/colabs
+    | ^examples/tutorials/nb_python
     | build
     | dist
     | obselete
@@ -25,3 +29,9 @@ exclude = '''
   )/
 )
 '''
+
+[tool.isort]
+skip_glob = ["*/deps/*", "*/build/*", "*/obselete/*"]
+known_first_party = ["habitat_sim"]
+profile = 'black'
+treat_comments_as_code = "# %%"

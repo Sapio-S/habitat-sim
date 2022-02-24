@@ -1,32 +1,32 @@
 // Copyright (c) Facebook, Inc. and its affiliates.
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
-
-#pragma once
+#ifndef ESP_AGENT_AGENT_H_
+#define ESP_AGENT_AGENT_H_
 
 #include <map>
 #include <set>
 #include <string>
 
-#include "esp/core/esp.h"
+#include "esp/core/Esp.h"
 #include "esp/scene/ObjectControls.h"
 #include "esp/scene/SceneNode.h"
 #include "esp/sensor/Sensor.h"
 
 namespace esp {
+
+namespace sensor {
+class SensorSuite;
+}
 namespace agent {
 
 // Represents the physical state of an agent
 struct AgentState {
-  vec3f position;
+  vec3f position = {0, 0, 0};
   // TODO: rotation below exposes quaternion x,y,z,w as vec4f for pybind11
   // interop, replace with quatf when we have custom pybind11 type conversion
   // for quaternions
-  vec4f rotation;
-  vec3f velocity;
-  vec3f angularVelocity;
-  vec3f force;
-  vec3f torque;
+  vec4f rotation = {0, 0, 0, 1};
   ESP_SMART_POINTERS(AgentState)
 };
 
@@ -40,7 +40,7 @@ struct ActionSpec {
   std::string name;
   // linear, angular forces, joint torques, sensor actuation
   ActuationMap actuation;
-  ESP_SMART_POINTERS(ActionSpec);
+  ESP_SMART_POINTERS(ActionSpec)
 };
 bool operator==(const ActionSpec& a, const ActionSpec& b);
 bool operator!=(const ActionSpec& a, const ActionSpec& b);
@@ -52,23 +52,19 @@ typedef std::map<std::string, ActionSpec::ptr> ActionSpace;
 struct AgentConfiguration {
   float height = 1.5;
   float radius = 0.1;
-  float mass = 32.0;
-  float linearAcceleration = 20.0;
-  float angularAcceleration = 4 * 3.14;
-  float linearFriction = 0.5;
-  float angularFriction = 1.0;
-  float coefficientOfRestitution = 0.0;
 
-  std::vector<sensor::SensorSpec::ptr> sensorSpecifications = {
-      sensor::SensorSpec::create()  // default SensorSpec
-  };
+  std::vector<sensor::SensorSpec::ptr> sensorSpecifications = {};
+
   ActionSpace actionSpace = {  // default ActionSpace
       {"moveForward",
        ActionSpec::create("moveForward", ActuationMap{{"amount", 0.25f}})},
-      {"lookLeft",
-       ActionSpec::create("lookLeft", ActuationMap{{"amount", 10.0f}})},
-      {"lookRight",
-       ActionSpec::create("lookRight", ActuationMap{{"amount", 10.0f}})}};
+      {"lookUp", ActionSpec::create("lookUp", ActuationMap{{"amount", 10.0f}})},
+      {"lookDown",
+       ActionSpec::create("lookDown", ActuationMap{{"amount", 10.0f}})},
+      {"turnLeft",
+       ActionSpec::create("turnLeft", ActuationMap{{"amount", 10.0f}})},
+      {"turnRight",
+       ActionSpec::create("turnRight", ActuationMap{{"amount", 10.0f}})}};
   std::string bodyType = "cylinder";
 
   ESP_SMART_POINTERS(AgentConfiguration)
@@ -83,7 +79,7 @@ class Agent : public Magnum::SceneGraph::AbstractFeature3D {
   // construction; user can use them immediately
   explicit Agent(scene::SceneNode& agentNode, const AgentConfiguration& cfg);
 
-  virtual ~Agent();
+  ~Agent() override;
 
   // Get the scene node being attached to.
   scene::SceneNode& node() { return object(); }
@@ -101,16 +97,40 @@ class Agent : public Magnum::SceneGraph::AbstractFeature3D {
 
   bool act(const std::string& actionName);
 
-  bool hasAction(const std::string& actionName);
+  bool hasAction(const std::string& actionName) const;
 
-  void getState(AgentState::ptr state) const;
+  void reset();
 
-  void setState(const AgentState& state, const bool resetSensors = true);
+  void getState(const AgentState::ptr& state) const;
+
+  void setState(const AgentState& state, bool resetSensors = true);
+
+  void setInitialState(const AgentState& state,
+                       const bool resetSensors = true) {
+    initialState_ = state;
+    setState(state, resetSensors);
+  }
 
   scene::ObjectControls::ptr getControls() { return controls_; }
 
-  const sensor::SensorSuite& getSensorSuite() const { return sensors_; }
-  sensor::SensorSuite& getSensorSuite() { return sensors_; }
+  /**
+   * @brief Return SensorSuite containing references to superset of all Sensors
+   * held by this Agent's SceneNode and its children
+   */
+  sensor::SensorSuite& getSubtreeSensorSuite() {
+    return node().getSubtreeSensorSuite();
+  }
+
+  /**
+   * @brief Return map containing references to superset of all Sensors held by
+   * this Agent's SceneNode and its children values.
+   * Keys of map are uuid strings, values are references to Sensors with that
+   * uuid
+   */
+  std::map<std::string, std::reference_wrapper<sensor::Sensor>>&
+  getSubtreeSensors() {
+    return node().getSubtreeSensors();
+  }
 
   const AgentConfiguration& getConfig() const { return configuration_; }
   AgentConfiguration& getConfig() { return configuration_; }
@@ -123,11 +143,13 @@ class Agent : public Magnum::SceneGraph::AbstractFeature3D {
 
  private:
   AgentConfiguration configuration_;
-  sensor::SensorSuite sensors_;
   scene::ObjectControls::ptr controls_;
+  AgentState initialState_;
 
   ESP_SMART_POINTERS(Agent)
 };
 
 }  // namespace agent
 }  // namespace esp
+
+#endif  // ESP_AGENT_AGENT_H_

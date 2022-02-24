@@ -1,8 +1,9 @@
-file(GLOB_RECURSE sim_SOURCES "*.cpp")
+add_library(
+  sim STATIC
+  Simulator.cpp Simulator.h SimulatorConfiguration.cpp SimulatorConfiguration.h
+)
 
-add_library(sim STATIC ${sim_SOURCES})
-
-target_link_libraries(sim
-  PUBLIC
-    nav
+target_link_libraries(
+  sim
+  PUBLIC nav
 )

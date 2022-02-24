@@ -13,6 +13,8 @@
 # This command will not try to find any actual plugin. The plugins are:
 #
 #  AssimpImporter               - Assimp importer
+#  BasisImageConverter          - Basis image converter
+#  BasisImporter                - Basis importer
 #  DdsImporter                  - DDS importer
 #  DevIlImageImporter           - Image importer using DevIL
 #  DrFlacAudioImporter          - FLAC audio importer using dr_flac
@@ -21,17 +23,22 @@
 #  Faad2AudioImporter           - AAC audio importer using FAAD2
 #  FreeTypeFont                 - FreeType font
 #  HarfBuzzFont                 - HarfBuzz font
+#  IcoImporter                  - ICO importer
 #  JpegImageConverter           - JPEG image converter
 #  JpegImporter                 - JPEG importer
+#  MeshOptimizerSceneConverter  - MeshOptimizer scene converter
 #  MiniExrImageConverter        - OpenEXR image converter using miniexr
 #  OpenGexImporter              - OpenGEX importer
 #  PngImageConverter            - PNG image converter
 #  PngImporter                  - PNG importer
+#  PrimitiveImporter            - Primitive importer
 #  StanfordImporter             - Stanford PLY importer
+#  StanfordSceneConverter       - Stanford PLY converter
 #  StbImageConverter            - Image converter using stb_image_write
 #  StbImageImporter             - Image importer using stb_image
 #  StbTrueTypeFont              - TrueType font using stb_truetype
 #  StbVorbisAudioImporter       - OGG audio importer using stb_vorbis
+#  StlImporter                  - STL importer
 #  TinyGltfImporter             - GLTF importer using tiny_gltf
 #
 # Some plugins expose their internal state through separate libraries. The
@@ -67,8 +74,9 @@
 #
 #   This file is part of Magnum.
 #
-#   Copyright © 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019
-#             Vladimír Vondruš <mosra@centrum.cz>
+#   Copyright © 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019,
+#               2020 Vladimír Vondruš <mosra@centrum.cz>
+#   Copyright © 2019 Jonathan Hale <squareys@googlemail.com>
 #
 #   Permission is hereby granted, free of charge, to any person obtaining a
 #   copy of this software and associated documentation files (the "Software"),
@@ -94,7 +102,7 @@ set(_MAGNUMPLUGINS_DEPENDENCIES )
 foreach(_component ${MagnumPlugins_FIND_COMPONENTS})
     if(_component MATCHES ".+AudioImporter$")
         set(_MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES Audio)
-    elseif(_component MATCHES ".+(Importer|ImageConverter)")
+    elseif(_component MATCHES ".+(Importer|ImageConverter|SceneConverter)")
         set(_MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES Trade)
     elseif(_component MATCHES ".+(Font|FontConverter)$")
         set(_MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES Text)
@@ -102,8 +110,16 @@ foreach(_component ${MagnumPlugins_FIND_COMPONENTS})
 
     if(_component STREQUAL AssimpImporter)
         list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES AnyImageImporter)
+    elseif(_component STREQUAL MeshOptimizerSceneConverter)
+        list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES MeshTools)
     elseif(_component STREQUAL OpenGexImporter)
         list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES AnyImageImporter)
+    elseif(_component STREQUAL PrimitiveImporter)
+        list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES Primitives)
+    elseif(_component STREQUAL StanfordImporter)
+        list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES MeshTools)
+    elseif(_component STREQUAL StanfordSceneConverter)
+        list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES MeshTools)
     elseif(_component STREQUAL TinyGltfImporter)
         list(APPEND _MAGNUMPLUGINS_${_component}_MAGNUM_DEPENDENCIES AnyImageImporter)
     endif()
@@ -121,12 +137,14 @@ mark_as_advanced(MAGNUMPLUGINS_INCLUDE_DIR)
 # components from other repositories)
 set(_MAGNUMPLUGINS_LIBRARY_COMPONENT_LIST OpenDdl)
 set(_MAGNUMPLUGINS_PLUGIN_COMPONENT_LIST
-    AssimpImporter DdsImporter DevIlImageImporter
-    DrFlacAudioImporter DrMp3AudioImporter DrWavAudioImporter Faad2AudioImporter
-    FreeTypeFont HarfBuzzFont JpegImageConverter JpegImporter
+    AssimpImporter BasisImageConverter BasisImporter DdsImporter
+    DevIlImageImporter DrFlacAudioImporter DrMp3AudioImporter
+    DrWavAudioImporter Faad2AudioImporter FreeTypeFont HarfBuzzFont IcoImporter
+    JpegImageConverter JpegImporter MeshOptimizerSceneConverter
     MiniExrImageConverter OpenGexImporter PngImageConverter PngImporter
-    StanfordImporter StbImageConverter StbImageImporter StbTrueTypeFont
-    StbVorbisAudioImporter TinyGltfImporter)
+    PrimitiveImporter StanfordImporter StanfordSceneConverter StbImageConverter
+    StbImageImporter StbTrueTypeFont StbVorbisAudioImporter StlImporter
+    TinyGltfImporter)
 
 # Inter-component dependencies
 set(_MAGNUMPLUGINS_HarfBuzzFont_DEPENDENCIES FreeTypeFont)
@@ -210,6 +228,10 @@ foreach(_component ${MagnumPlugins_FIND_COMPONENTS})
             elseif(_component MATCHES ".+ImageConverter$")
                 set(_MAGNUMPLUGINS_${_COMPONENT}_PATH_SUFFIX imageconverters)
 
+            # SceneConverter plugin specific name suffixes
+            elseif(_component MATCHES ".+SceneConverter$")
+                set(_MAGNUMPLUGINS_${_COMPONENT}_PATH_SUFFIX sceneconverters)
+
             # FontConverter plugin specific name suffixes
             elseif(_component MATCHES ".+FontConverter$")
                 set(_MAGNUMPLUGINS_${_COMPONENT}_PATH_SUFFIX fontconverters)
@@ -271,6 +293,25 @@ foreach(_component ${MagnumPlugins_FIND_COMPONENTS})
             set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
                 INTERFACE_LINK_LIBRARIES Assimp::Assimp)
 
+        # BasisImageConverter / BasisImporter has only compiled-in
+        # dependencies, except in case of vcpkg, then we need to link to a
+        # library. Use a similar logic as in FindBasisUniversal, so in case an
+        # user wants to disable this, they can point BASIS_UNIVERSAL_DIR to
+        # something else (or just anything, because in that case it'll be a
+        # no-op.
+        elseif(_component STREQUAL BasisImageConverter)
+            find_package(basisu CONFIG QUIET)
+            if(basisu_FOUND AND NOT BASIS_UNIVERSAL_DIR)
+                set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
+                    INTERFACE_LINK_LIBRARIES basisu_encoder)
+            endif()
+        elseif(_component STREQUAL BasisImporter)
+            find_package(basisu CONFIG QUIET)
+            if(basisu_FOUND AND NOT BASIS_UNIVERSAL_DIR)
+                set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
+                    INTERFACE_LINK_LIBRARIES basisu_transcoder)
+            endif()
+
         # DdsImporter has no dependencies
 
         # DevIlImageImporter plugin dependencies
@@ -320,8 +361,10 @@ foreach(_component ${MagnumPlugins_FIND_COMPONENTS})
             set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
                 INTERFACE_LINK_LIBRARIES HarfBuzz::HarfBuzz)
 
-        # JpegImageConverter plugin dependencies
-        elseif(_component STREQUAL JpegImageConverter)
+        # IcoImporter has no dependencies
+
+        # JpegImporter / JpegImageConverter plugin dependencies
+        elseif(_component STREQUAL JpegImageConverter OR _component STREQUAL JpegImporter)
             find_package(JPEG)
             # Need to handle special cases where both debug and release
             # libraries are available (in form of debug;A;optimized;B in
@@ -334,58 +377,48 @@ foreach(_component ${MagnumPlugins_FIND_COMPONENTS})
                     INTERFACE_LINK_LIBRARIES ${JPEG_LIBRARIES})
             endif()
 
-        # JpegImporter plugin dependencies
-        elseif(_component STREQUAL JpegImporter)
-            find_package(JPEG)
-            # Need to handle special cases where both debug and release
-            # libraries are available (in form of debug;A;optimized;B in
-            # JPEG_LIBRARIES), thus appending them one by one
-            if(JPEG_LIBRARY_DEBUG AND JPEG_LIBRARY_RELEASE)
+        # MeshOptimizerSceneConverter plugin dependencies
+        elseif(_component STREQUAL MeshOptimizerSceneConverter)
+            if(NOT TARGET meshoptimizer)
+                find_package(meshoptimizer REQUIRED CONFIG)
                 set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
-                    INTERFACE_LINK_LIBRARIES "$<$<NOT:$<CONFIG:Debug>>:${JPEG_LIBRARY_RELEASE}>;$<$<CONFIG:Debug>:${JPEG_LIBRARY_DEBUG}>")
+                    INTERFACE_LINK_LIBRARIES meshoptimizer::meshoptimizer)
             else()
                 set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
-                    INTERFACE_LINK_LIBRARIES ${JPEG_LIBRARIES})
+                    INTERFACE_LINK_LIBRARIES meshoptimizer)
             endif()
 
         # MiniExrImageConverter has no dependencies
         # No special setup for the OpenDdl library
         # OpenGexImporter has no dependencies
 
-        # PngImageConverter plugin dependencies
-        elseif(_component STREQUAL PngImageConverter)
+        # PngImageConverter / PngImporter plugin dependencies
+        elseif(_component STREQUAL PngImageConverter OR _component STREQUAL PngImporter)
             find_package(PNG)
             # Need to handle special cases where both debug and release
             # libraries are available (in form of debug;A;optimized;B in
-            # PNG_LIBRARIES), thus appending them one by one
+            # PNG_LIBRARIES), thus appending them one by one. Imported target
+            # that would make this obsolete is unfortunately only since CMake
+            # 3.5. We need to link to zlib explicitly in this case as well
+            # (whereas PNG_LIBRARIES contains that already), fortunately zlib
+            # has an imported target in 3.4 already.
             if(PNG_LIBRARY_DEBUG AND PNG_LIBRARY_RELEASE)
                 set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
-                    INTERFACE_LINK_LIBRARIES "$<$<NOT:$<CONFIG:Debug>>:${PNG_LIBRARY_RELEASE}>;$<$<CONFIG:Debug>:${PNG_LIBRARY_DEBUG}>")
-            else()
-                set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
-                    INTERFACE_LINK_LIBRARIES ${PNG_LIBRARIES})
-            endif()
-
-        # PngImporter plugin dependencies
-        elseif(_component STREQUAL PngImporter)
-            find_package(PNG)
-            # Need to handle special cases where both debug and release
-            # libraries are available (in form of debug;A;optimized;B in
-            # PNG_LIBRARIES), thus appending them one by one
-            if(PNG_LIBRARY_DEBUG AND PNG_LIBRARY_RELEASE)
-                set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
-                    INTERFACE_LINK_LIBRARIES "$<$<NOT:$<CONFIG:Debug>>:${PNG_LIBRARY_RELEASE}>;$<$<CONFIG:Debug>:${PNG_LIBRARY_DEBUG}>")
+                    INTERFACE_LINK_LIBRARIES "$<$<NOT:$<CONFIG:Debug>>:${PNG_LIBRARY_RELEASE}>;$<$<CONFIG:Debug>:${PNG_LIBRARY_DEBUG}>" ZLIB::ZLIB)
             else()
                 set_property(TARGET MagnumPlugins::${_component} APPEND PROPERTY
                     INTERFACE_LINK_LIBRARIES ${PNG_LIBRARIES})
             endif()
         endif()
 
+        # PrimitiveImporter has no dependencies
         # StanfordImporter has no dependencies
+        # StanfordSceneConverter has no dependencies
         # StbImageConverter has no dependencies
         # StbImageImporter has no dependencies
         # StbTrueTypeFont has no dependencies
         # StbVorbisAudioImporter has no dependencies
+        # StlImporter has no dependencies
         # TinyGltfImporter has no dependencies
 
         # Find plugin/library includes

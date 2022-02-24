@@ -2,10 +2,11 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_GEO_OBB_H_
+#define ESP_GEO_OBB_H_
 
-#include "esp/core/esp.h"
-#include "esp/geo/geo.h"
+#include "esp/core/Esp.h"
+#include "esp/geo/Geo.h"
 
 namespace esp {
 namespace geo {
@@ -76,3 +77,5 @@ OBB computeGravityAlignedMOBB(const vec3f& gravity,
 
 }  // namespace geo
 }  // namespace esp
+
+#endif  // ESP_GEO_OBB_H_

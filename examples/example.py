@@ -7,12 +7,10 @@
 
 import argparse
 
-import numpy as np
-
 import demo_runner as dr
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--scene", type=str, default=dr.default_sim_settings["test_scene"])
+parser.add_argument("--scene", type=str, default=dr.default_sim_settings["scene"])
 parser.add_argument("--width", type=int, default=640)
 parser.add_argument("--height", type=int, default=480)
 parser.add_argument("--max_frames", type=int, default=1000)
@@ -25,10 +23,17 @@ parser.add_argument("--print_semantic_scene", action="store_true")
 parser.add_argument("--print_semantic_mask_stats", action="store_true")
 parser.add_argument("--compute_shortest_path", action="store_true")
 parser.add_argument("--compute_action_shortest_path", action="store_true")
+parser.add_argument("--recompute_navmesh", action="store_true")
 parser.add_argument("--seed", type=int, default=1)
 parser.add_argument("--silent", action="store_true")
 parser.add_argument("--test_fps_regression", type=int, default=0)
 parser.add_argument("--enable_physics", action="store_true")
+parser.add_argument(
+    "--physics_config_file",
+    type=str,
+    default=dr.default_sim_settings["physics_config_file"],
+)
+parser.add_argument("--disable_frustum_culling", action="store_true")
 args = parser.parse_args()
 
 
@@ -50,6 +55,9 @@ def make_settings():
     settings["seed"] = args.seed
     settings["silent"] = args.silent
     settings["enable_physics"] = args.enable_physics
+    settings["physics_config_file"] = args.physics_config_file
+    settings["frustum_culling"] = not args.disable_frustum_culling
+    settings["recompute_navmesh"] = args.recompute_navmesh
 
     return settings
 
@@ -57,7 +65,7 @@ def make_settings():
 settings = make_settings()
 
 perfs = []
-for i in range(1):
+for _i in range(1):
     demo_runner = dr.DemoRunner(settings, dr.DemoRunnerType.EXAMPLE)
     perf = demo_runner.example()
     perfs.append(perf)

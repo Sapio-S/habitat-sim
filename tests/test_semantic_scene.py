@@ -4,23 +4,20 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os.path as osp
+from os import path as osp
 
-import numpy as np
 import pytest
-import quaternion
+import quaternion  # noqa: F401
 
 import habitat_sim
-import habitat_sim.bindings as hsim
 import habitat_sim.errors
-import habitat_sim.utils
 from examples.settings import make_cfg
 
 _test_scenes = [
     osp.abspath(
         osp.join(
             osp.dirname(__file__),
-            "../data/scene_datasets/mp3d/17DRP5sb8fy/17DRP5sb8fy.glb",
+            "../data/scene_datasets/mp3d_example/17DRP5sb8fy/17DRP5sb8fy.glb",
         )
     ),
     osp.abspath(
@@ -43,7 +40,8 @@ def test_semantic_scene(scene, make_cfg_settings):
     cfg = make_cfg(make_cfg_settings)
     cfg.agents[0].sensor_specifications = []
     sim = habitat_sim.Simulator(cfg)
-
+    # verify color map access
+    sim.semantic_color_map
     scene = sim.semantic_scene
     for obj in scene.objects:
         obj.aabb

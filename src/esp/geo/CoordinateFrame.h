@@ -2,10 +2,11 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_GEO_COORDINATEFRAME_H_
+#define ESP_GEO_COORDINATEFRAME_H_
 
-#include "esp/core/esp.h"
-#include "esp/geo/geo.h"
+#include "esp/core/Esp.h"
+#include "esp/geo/Geo.h"
 
 namespace esp {
 namespace geo {
@@ -15,11 +16,11 @@ namespace geo {
 //! equivalently "gravity" and "back"
 class CoordinateFrame {
  public:
-  CoordinateFrame(const vec3f& up = ESP_UP,
-                  const vec3f& front = ESP_FRONT,
-                  const vec3f& origin = vec3f::Zero());
-  CoordinateFrame(const quatf& rotation, const vec3f& origin = vec3f::Zero());
-  explicit CoordinateFrame(const std::string& json);
+  explicit CoordinateFrame(const vec3f& up = ESP_UP,
+                           const vec3f& front = ESP_FRONT,
+                           const vec3f& origin = vec3f::Zero());
+  explicit CoordinateFrame(const quatf& rotation,
+                           const vec3f& origin = vec3f::Zero());
 
   //! Returns position of origin of this CoordinateFrame relative to parent
   vec3f origin() const { return origin_; }
@@ -48,10 +49,7 @@ class CoordinateFrame {
   Transform transformationWorldToFrame() const;
 
   //! Returns a stringified JSON representation of this CoordinateFrame
-  std::string toJson() const;
-
-  //! Read CoordinateFrame from stringified JSON
-  void fromJson(const std::string& json);
+  std::string toString() const;
 
  protected:
   vec3f up_;
@@ -64,8 +62,10 @@ bool operator==(const CoordinateFrame& a, const CoordinateFrame& b);
 bool operator!=(const CoordinateFrame& a, const CoordinateFrame& b);
 
 inline std::ostream& operator<<(std::ostream& os, const CoordinateFrame& c) {
-  return os << c.toJson();
+  return os << c.toString();
 }
 
 }  // namespace geo
 }  // namespace esp
+
+#endif  // ESP_GEO_COORDINATEFRAME_H_

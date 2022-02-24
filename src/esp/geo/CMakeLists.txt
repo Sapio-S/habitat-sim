@@ -1,10 +1,20 @@
-file(GLOB_RECURSE geo_SOURCES "*.cpp")
+add_library(
+  geo STATIC
+  CoordinateFrame.cpp
+  CoordinateFrame.h
+  Geo.cpp
+  Geo.h
+  OBB.cpp
+  OBB.h
+  VoxelGrid.cpp
+  VoxelGrid.h
+  VoxelUtils.cpp
+  VoxelUtils.h
+  VoxelWrapper.cpp
+  VoxelWrapper.h
+)
 
-add_library(geo STATIC ${geo_SOURCES})
-
-target_link_libraries(geo
-  PUBLIC
-   core
-   glog
-   io
+target_link_libraries(
+  geo
+  PUBLIC core gfx
 )

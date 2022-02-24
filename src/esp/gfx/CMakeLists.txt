@@ -1,37 +1,107 @@
-file(GLOB_RECURSE gfx_SOURCES "*.cpp")
-
-# If not GUI build, remove Viewer source
-# TODO(MS) Viewer really ought to be in separate module that is disabled
-if(NOT BUILD_GUI_VIEWERS)
-  list(REMOVE_ITEM gfx_SOURCES "${CMAKE_CURRENT_LIST_DIR}/Viewer.cpp")
-endif()
-
-# If ptex support is disabled remove relevant source files
-if(NOT BUILD_PTEX_SUPPORT)
-  list(REMOVE_ITEM gfx_SOURCES "${CMAKE_CURRENT_LIST_DIR}/PTexMeshDrawable.cpp" "${CMAKE_CURRENT_LIST_DIR}/PTexMeshShader.cpp")
-endif()
-
-if ((UNIX AND NOT APPLE) AND (NOT BUILD_GUI_VIEWERS))
-  list(APPEND gfx_SOURCES "${DEPS_DIR}/glad/src/glad_egl.c")
-endif()
-
-find_package(Magnum
-  REQUIRED
-    AnyImageImporter
-    AnySceneImporter
-    GL
-    MeshTools
-    SceneGraph
-    Shaders
-    Trade
+set(
+  gfx_SOURCES
+  CubeMap.cpp
+  CubeMap.h
+  DepthUnprojection.cpp
+  DepthUnprojection.h
+  Drawable.cpp
+  Drawable.h
+  DrawableGroup.cpp
+  DrawableGroup.h
+  GenericDrawable.cpp
+  GenericDrawable.h
+  MeshVisualizerDrawable.cpp
+  MeshVisualizerDrawable.h
+  LightSetup.cpp
+  LightSetup.h
+  MaterialData.h
+  MaterialUtil.cpp
+  MaterialUtil.h
+  magnum.h
+  RenderCamera.cpp
+  RenderCamera.h
+  CubeMapCamera.cpp
+  CubeMapCamera.h
+  CubeMap.cpp
+  CubeMap.h
+  DebugLineRender.cpp
+  DebugLineRender.h
+  Renderer.cpp
+  Renderer.h
+  replay/Keyframe.h
+  replay/Player.cpp
+  replay/Player.h
+  replay/Recorder.cpp
+  replay/Recorder.h
+  replay/ReplayManager.h
+  replay/ReplayManager.cpp
+  WindowlessContext.cpp
+  WindowlessContext.h
+  RenderTarget.cpp
+  RenderTarget.h
+  ShaderManager.cpp
+  ShaderManager.h
+  PbrShader.cpp
+  PbrShader.h
+  PbrDrawable.cpp
+  PbrDrawable.h
+  TextureVisualizerShader.cpp
+  TextureVisualizerShader.h
+  CubeMapShaderBase.cpp
+  CubeMapShaderBase.h
+  DoubleSphereCameraShader.cpp
+  DoubleSphereCameraShader.h
+  EquirectangularShader.cpp
+  EquirectangularShader.h
+  PbrImageBasedLighting.cpp
+  PbrImageBasedLighting.h
+  PbrEquiRectangularToCubeMapShader.cpp
+  PbrEquiRectangularToCubeMapShader.h
+  PbrPrecomputedMapShader.cpp
+  PbrPrecomputedMapShader.h
+  PbrTextureUnit.h
+  DepthMapDrawableBase.cpp
+  DepthMapDrawableBase.h
+  ShadowMapManager.h
+  VarianceShadowMapShader.h
+  VarianceShadowMapShader.cpp
+  VarianceShadowMapDrawable.h
+  VarianceShadowMapDrawable.cpp
+  GaussianFilterShader.h
+  GaussianFilterShader.cpp
 )
 
-find_package(MagnumPlugins
+# If ptex support is enabled add relevant source files
+if(BUILD_PTEX_SUPPORT)
+  list(
+    APPEND
+    gfx_SOURCES
+    PTexMeshDrawable.cpp
+    PTexMeshDrawable.h
+    PTexMeshShader.cpp
+    PTexMeshShader.h
+  )
+endif()
+
+if(BUILD_WITH_BACKGROUND_RENDERER)
+  list(APPEND gfx_SOURCES BackgroundRenderer.h BackgroundRenderer.cpp)
+endif()
+
+find_package(
+  Magnum
   REQUIRED
-    StbImageImporter
-    StbImageConverter
-    TinyGltfImporter
+  AnyImageImporter
+  AnySceneImporter
+  GL
+  MeshTools
+  DebugTools
+  SceneGraph
+  Shaders
+  Trade
+  AnyImageConverter
 )
+
+find_package(MagnumPlugins REQUIRED CgltfImporter StbImageImporter StbImageConverter)
 
 find_package(MagnumIntegration REQUIRED Eigen)
 
@@ -41,33 +111,49 @@ find_package(Corrade REQUIRED Utility)
 corrade_add_resource(ShaderResources ../../shaders/Shaders.conf)
 list(APPEND gfx_SOURCES ${ShaderResources})
 
-add_library(gfx STATIC ${gfx_SOURCES})
+corrade_add_resource(PbrImageResources ../../../data/pbr/PbrImages.conf)
+list(APPEND gfx_SOURCES ${PbrImageResources})
 
-target_include_directories(gfx
-  PRIVATE
-    "${DEPS_DIR}/glad/include"
+add_library(
+  gfx STATIC
+  ${gfx_SOURCES}
 )
 
-target_link_libraries(gfx
-  PUBLIC
-    assets
-    core
-    io
-    physics
-    Magnum::AnyImageImporter
-    Magnum::AnySceneImporter
-    Magnum::GL
-    Magnum::Magnum
-    Magnum::MeshTools
-    Magnum::SceneGraph
-    Magnum::Shaders
-    Magnum::Trade
-    MagnumPlugins::StbImageImporter
-    MagnumPlugins::StbImageConverter
-    MagnumPlugins::TinyGltfImporter
-    MagnumIntegration::Eigen
-    Corrade::Utility
+if(BUILD_WITH_CUDA)
+  target_include_directories(
+    gfx PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
+                ${CMAKE_CURRENT_LIST_DIR}/cuda_helpers
+  )
+
+  target_link_libraries(gfx PUBLIC ${CUDART_LIBRARY})
+endif()
+
+target_link_libraries(
+  gfx
+  PUBLIC assets
+         core
+         io
+         physics
+         Magnum::AnyImageImporter
+         Magnum::AnySceneImporter
+         Magnum::GL
+         Magnum::Magnum
+         Magnum::MeshTools
+         Magnum::DebugTools
+         Magnum::SceneGraph
+         Magnum::Shaders
+         Magnum::Trade
+         MagnumPlugins::CgltfImporter
+         MagnumPlugins::StbImageImporter
+         MagnumPlugins::StbImageConverter
+         MagnumIntegration::Eigen
+         Corrade::Utility
+         Magnum::AnyImageConverter
 )
+
+if(BUILD_WITH_BACKGROUND_RENDERER)
+  target_link_libraries(gfx PUBLIC atomic_wait)
+endif()
 
 # Link windowed application library if needed
 if(BUILD_GUI_VIEWERS)

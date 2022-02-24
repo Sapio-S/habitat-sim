@@ -6,8 +6,10 @@
 
 #include <Magnum/EigenIntegration/Integration.h>
 
+#include <utility>
+
 #include "SceneNode.h"
-#include "esp/core/esp.h"
+#include "esp/core/Esp.h"
 
 using Magnum::EigenIntegration::cast;
 
@@ -44,14 +46,14 @@ SceneNode& moveForward(SceneNode& object, float distance) {
   return moveBackward(object, -distance);
 }
 
-SceneNode& lookLeft(SceneNode& object, float angleInDegrees) {
+SceneNode& turnLeft(SceneNode& object, float angleInDegrees) {
   object.rotateYLocal(Magnum::Deg(angleInDegrees));
   object.setRotation(object.rotation().normalized());
   return object;
 }
 
-SceneNode& lookRight(SceneNode& object, float angleInDegrees) {
-  return lookLeft(object, -angleInDegrees);
+SceneNode& turnRight(SceneNode& object, float angleInDegrees) {
+  return turnLeft(object, -angleInDegrees);
 }
 
 SceneNode& lookUp(SceneNode& object, float angleInDegrees) {
@@ -71,20 +73,15 @@ ObjectControls::ObjectControls() {
   moveFuncMap_["moveDown"] = &moveDown;
   moveFuncMap_["moveForward"] = &moveForward;
   moveFuncMap_["moveBackward"] = &moveBackward;
-  moveFuncMap_["lookLeft"] = &lookLeft;
-  moveFuncMap_["lookRight"] = &lookRight;
+  moveFuncMap_["turnLeft"] = &turnLeft;
+  moveFuncMap_["turnRight"] = &turnRight;
   moveFuncMap_["lookUp"] = &lookUp;
   moveFuncMap_["lookDown"] = &lookDown;
-
-  // TODO Do we need a different function for turnLeft vs. lookLeft?
-  // Those should just be body vs. sensor, but should check
-  moveFuncMap_["turnLeft"] = &lookLeft;
-  moveFuncMap_["turnRight"] = &lookRight;
 }
 
 ObjectControls& ObjectControls::setMoveFilterFunction(
     MoveFilterFunc filterFunc) {
-  moveFilterFunc_ = filterFunc;
+  moveFilterFunc_ = std::move(filterFunc);
   return *this;
 }
 
@@ -92,7 +89,7 @@ ObjectControls& ObjectControls::action(SceneNode& object,
                                        const std::string& actName,
                                        float distance,
                                        bool applyFilter /* = true */) {
-  if (moveFuncMap_.count(actName)) {
+  if (moveFuncMap_.count(actName) != 0u) {
     if (applyFilter) {
       // TODO: use magnum math for the filter func as well?
       const auto startPosition =
@@ -106,7 +103,7 @@ ObjectControls& ObjectControls::action(SceneNode& object,
       moveFuncMap_[actName](object, distance);
     }
   } else {
-    LOG(ERROR) << "Tried to perform unknown action with name " << actName;
+    ESP_ERROR() << "Tried to perform unknown action with name" << actName;
   }
 
   return *this;

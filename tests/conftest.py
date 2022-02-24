@@ -1,11 +1,11 @@
-import os.path as osp
+import os
+import sys
+from os import path as osp
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "helpers"))
+
 
 import pytest
-
-import habitat_sim
-import habitat_sim.bindings as hsim
-import habitat_sim.utils
-from examples.settings import make_cfg
 
 _test_scene = osp.abspath(
     osp.join(
@@ -14,23 +14,19 @@ _test_scene = osp.abspath(
     )
 )
 
-
-@pytest.fixture(scope="session")
+# Testing configurations
+@pytest.fixture(scope="function")
 def make_cfg_settings():
-    return dict(
-        height=480,
-        width=640,
-        sensor_height=1.5,
-        color_sensor=True,
-        semantic_sensor=True,
-        depth_sensor=True,
-        silent=True,
-        scene=_test_scene,
-    )
+    import examples.settings
 
-
-# Any test globally can take `sim` as an arguement and will get
-# the single instance of the Simulator
-@pytest.fixture(scope="session")
-def sim(make_cfg_settings):
-    return habitat_sim.Simulator(make_cfg(make_cfg_settings))
+    cfg = examples.settings.default_sim_settings.copy()
+    cfg["height"] = 480
+    cfg["width"] = 640
+    cfg["sensor_height"] = 1.5
+    cfg["color_sensor"] = True
+    cfg["semantic_sensor"] = True
+    cfg["depth_sensor"] = True
+    cfg["silent"] = True
+    cfg["scene"] = _test_scene
+    cfg["frustum_culling"] = True
+    return cfg

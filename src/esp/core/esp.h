@@ -2,7 +2,10 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_CORE_ESP_H_
+#define ESP_CORE_ESP_H_
+
+/** @file */
 
 #include <map>
 #include <memory>
@@ -18,9 +21,14 @@
 #include <Eigen/Geometry>
 // #include <Eigen/StdVector>
 
+#include <Magnum/EigenIntegration/GeometryIntegration.h>
+#include <Magnum/EigenIntegration/Integration.h>
+#include <Magnum/Math/Range.h>
+#include <Magnum/Math/RectangularMatrix.h>
+
+#include "esp/core/Logging.h"
+#include "esp/core/Spimpl.h"
 #include "esp/core/configure.h"
-#include "esp/core/logging.h"
-#include "esp/core/spimpl.h"
 
 namespace Eigen {
 typedef Matrix<uint8_t, 3, 1> Vector3uc;
@@ -29,15 +37,56 @@ typedef Matrix<uint8_t, 4, 1> Vector4uc;
 typedef Matrix<uint32_t, 4, 1> Vector4ui;
 typedef Matrix<uint64_t, 4, 1> Vector4ul;
 
-//! Eigen JSON string format specification
-static const IOFormat
-    kJsonFormat(StreamPrecision, DontAlignCols, ",", ",", "", "", "[", "]");
+typedef Matrix<float, Dynamic, Dynamic, RowMajor> RowMatrixXf;
 
-//! Write Eigen matrix types into ostream in JSON string format
+//! Eigen JSON string format specification
+static const IOFormat kJsonFormat(StreamPrecision,
+                                  DontAlignCols,
+                                  ",",   // coef separator
+                                  ",",   // row separator
+                                  "",    // row prefix
+                                  "",    // col prefix
+                                  "[",   // mat prefix
+                                  "]");  // mat suffix
+
 template <typename T, int numRows, int numCols>
 std::ostream& operator<<(std::ostream& os,
                          const Matrix<T, numRows, numCols>& matrix) {
   return os << matrix.format(kJsonFormat);
+}
+
+//! Write Eigen matrix types into ostream in JSON string format
+template <typename T, int numRows, int numCols>
+typename std::enable_if<numRows == Dynamic || numCols == Dynamic,
+                        Corrade::Utility::Debug&>::type
+operator<<(Corrade::Utility::Debug& os,
+           const Matrix<T, numRows, numCols>& matrix) {
+  return os << matrix.format(kJsonFormat);
+}
+
+template <typename T, int numRows, int numCols>
+typename std::enable_if<(numRows != Dynamic && numCols != Dynamic) &&
+                            (numRows != 1 && numCols != 1),
+                        Corrade::Utility::Debug&>::type
+operator<<(Corrade::Utility::Debug& os,
+           const Matrix<T, numRows, numCols>& matrix) {
+  return os << Magnum::Math::RectangularMatrix<numRows, numCols, T>{matrix};
+}
+
+template <typename T, int numRows, int numCols>
+typename std::enable_if<(numRows != Dynamic && numCols != Dynamic) &&
+                            (numRows == 1 || numCols == 1),
+                        Corrade::Utility::Debug&>::type
+operator<<(Corrade::Utility::Debug& os,
+           const Matrix<T, numRows, numCols>& matrix) {
+  return os << Magnum::Math::Vector<(numRows == 1 ? numCols : numRows), T>{
+             matrix};
+}
+
+//! Write Eigen map into ostream in JSON string format
+template <typename T>
+std::ostream& operator<<(std::ostream& os, const Map<T>& m) {
+  return os << m.format(kJsonFormat);
 }
 
 }  // namespace Eigen
@@ -57,6 +106,7 @@ std::ostream& operator<<(std::ostream& os,
 // EIGEN_DEFINE_STL_VECTOR_SPECIALIZATION(Eigen::Matrix4d)
 // EIGEN_DEFINE_STL_VECTOR_SPECIALIZATION(Eigen::Vector4uc)
 
+//! core simulator namespace
 namespace esp {
 
 // basic types
@@ -88,21 +138,45 @@ inline std::ostream& operator<<(std::ostream& os, const box3f& bbox) {
   return os << "{min:" << bbox.min() << ",max:" << bbox.max() << "}";
 }
 
+//! Write box3f as a magnum range
+inline Corrade::Utility::Debug& operator<<(Corrade::Utility::Debug& os,
+                                           const box3f& bbox) {
+  return os << Magnum::Range3D{bbox};
+}
+
 // smart pointers macro
-#define ESP_SMART_POINTERS(T)                                 \
- public:                                                      \
-  typedef std::shared_ptr<T> ptr;                             \
-  typedef std::unique_ptr<T> uptr;                            \
-  typedef std::shared_ptr<const T> cptr;                      \
-  typedef std::unique_ptr<const T> ucptr;                     \
-  template <typename... Targs>                                \
-  static inline ptr create(Targs&&... args) {                 \
-    return std::make_shared<T>(std::forward<Targs>(args)...); \
-  };                                                          \
-  template <typename... Targs>                                \
-  static inline uptr create_unique(Targs&&... args) {         \
-    return std::make_unique<T>(std::forward<Targs>(args)...); \
-  };
+#define ESP_SMART_POINTERS(...)                                         \
+ public:                                                                \
+  typedef std::shared_ptr<__VA_ARGS__> ptr;                             \
+  typedef std::unique_ptr<__VA_ARGS__> uptr;                            \
+  typedef std::shared_ptr<const __VA_ARGS__> cptr;                      \
+  typedef std::unique_ptr<const __VA_ARGS__> ucptr;                     \
+  template <typename... Targs>                                          \
+  static inline ptr create(Targs&&... args) {                           \
+    return std::make_shared<__VA_ARGS__>(std::forward<Targs>(args)...); \
+  }                                                                     \
+  template <typename... Targs>                                          \
+  static inline uptr create_unique(Targs&&... args) {                   \
+    return std::make_unique<__VA_ARGS__>(std::forward<Targs>(args)...); \
+  }
+
+/**
+ * shim function helper for derived class of std::enable_shared_from_this<Base>
+ */
+template <typename Base>
+inline std::shared_ptr<Base> shared_from_base(
+    std::enable_shared_from_this<Base>* base) {
+  return base->shared_from_this();
+}
+
+/**
+ * shared_from_this access for inheriting classes of Base classes that inherit
+ * std::enable_shared_from_this<Base>
+ */
+template <typename Derived>
+inline std::shared_ptr<Derived> shared_from(Derived* derived) {
+  return std::static_pointer_cast<Derived>(shared_from_base(derived));
+}
 
 // pimpl macro backed by unique_ptr pointer
 #define ESP_UNIQUE_PTR_PIMPL() \
@@ -124,10 +198,43 @@ inline std::ostream& operator<<(std::ostream& os, const box3f& bbox) {
   ESP_SMART_POINTERS(T)                         \
   ESP_SHARED_PTR_PIMPL()
 
-static const int ID_UNDEFINED = -1;
-static const double PHYSICS_ATTR_UNDEFINED = -1.0;
+/** @brief Returned on failed creation or lookup of an ID. */
+constexpr int ID_UNDEFINED = -1;
+
+/** @brief Undefined or invalid attribute in physics property query. */
+constexpr double PHYSICS_ATTR_UNDEFINED = -1.0;
 
 static const double NO_TIME = 0.0;
+
+/**
+ * @brief The @ref esp::gfx::ShaderManager key for @ref esp::gfx::LightInfo
+ * which has no lights
+ */
+constexpr char NO_LIGHT_KEY[] = "no_lights";
+
+/**
+ *@brief The @ref esp::gfx::ShaderManager key for the default @ref
+ *esp::gfx::LightInfo
+ */
+constexpr char DEFAULT_LIGHTING_KEY[] = "";
+
+/**
+ *@brief The @ref esp::gfx::ShaderManager key for the default @ref
+ *esp::gfx::MaterialInfo
+ */
+constexpr char DEFAULT_MATERIAL_KEY[] = "";
+
+/**
+ *@brief The @ref esp::gfx::ShaderManager key for full ambient white @ref
+ *esp::gfx::MaterialInfo used for primitive wire-meshes
+ */
+constexpr char WHITE_MATERIAL_KEY[] = "ambient_white";
+
+/**
+ *@brief The @ref ShaderManager key for @ref MaterialInfo with per-vertex
+ * object ID
+ */
+constexpr char PER_VERTEX_OBJECT_ID_MATERIAL_KEY[] = "per_vertex_object_id";
 
 template <typename T>
 inline bool equal(const std::vector<std::shared_ptr<T>>& a,
@@ -153,3 +260,5 @@ inline bool equal(const std::map<K, std::shared_ptr<V>>& a,
 }
 
 }  // namespace esp
+
+#endif  // ESP_CORE_ESP_H_

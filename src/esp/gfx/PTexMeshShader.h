@@ -2,7 +2,8 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_GFX_PTEXMESHSHADER_H_
+#define ESP_GFX_PTEXMESHSHADER_H_
 
 #include <memory>
 #include <vector>
@@ -23,46 +24,73 @@ namespace gfx {
 
 class PTexMeshShader : public Magnum::GL::AbstractShaderProgram {
  public:
-  typedef Magnum::GL::Attribute<0, Magnum::Vector4> Position;
+  //! @brief vertex positions
+  typedef Magnum::GL::Attribute<0, Magnum::Vector3> Position;
 
+  /**
+   * @brief Constructor
+   */
   explicit PTexMeshShader();
 
-  PTexMeshShader& bindTexture(Magnum::GL::Texture2D& texture,
-                              uint32_t textureUnit = 0) {
-    texture.bind(textureUnit);
-    return *this;
-  }
+  // ======== texture binding ========
+  /**
+   * @brief Bind the atlas texture
+   * @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& bindAtlasTexture(Magnum::GL::Texture2D& texture);
+  /**
+   *  @brief Bind the buffer texture containing the adjacent faces
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& bindAdjFacesBufferTexture(Magnum::GL::BufferTexture& texture);
 
-  PTexMeshShader& setMVPMatrix(const Magnum::Matrix4& matrix) {
-    setUniform(uniformLocation("MVP"), matrix);
-    return *this;
-  }
+  // ======== set uniforms ===========
+  /**
+   *  @brief Set modelview and projection matrix to the uniform on GPU
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& setMVPMatrix(const Magnum::Matrix4& matrix);
+  /**
+   *  @brief Set expsure to the uniform on GPU
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& setExposure(float exposure);
+  /**
+   *  @brief Set gamma to the uniform on GPU
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& setGamma(float gamma);
+  /**
+   *  @brief Set saturation to the uniform on GPU
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& setSaturation(float saturation);
+  /**
+   *  @brief Set the tile size of the atlas texture
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& setAtlasTextureSize(Magnum::GL::Texture2D& texture,
+                                      uint32_t tileSize);
+  /**
+   *  @brief Set object id to the uniform on GPU
+   *  @return Reference to self (for method chaining)
+   */
+  PTexMeshShader& setObjectId(unsigned int objectId);
 
-  PTexMeshShader& setPTexUniforms(assets::PTexMeshData& ptexMeshData,
-                                  int submeshID,
-                                  uint32_t tileSize,
-                                  float exposure) {
-    setPTexUniforms(ptexMeshData.getRenderingBuffer(submeshID)->tex, tileSize,
-                    exposure);
-    return *this;
-  }
-
-  PTexMeshShader& setPTexUniforms(Magnum::GL::Texture2D& tex,
-                                  uint32_t tileSize,
-                                  float exposure) {
-    setUniform(uniformLocation("atlasTex"), 0);
-    setUniform(uniformLocation("tileSize"), static_cast<int>(tileSize));
-    // Image size in given mip level 0
-    {
-      int mipLevel = 0;
-      int widthEntry = 0;
-      const auto width = tex.imageSize(mipLevel)[widthEntry];
-      setUniform(uniformLocation("widthInTiles"), int(width / tileSize));
-    }
-    setUniform(uniformLocation("exposure"), exposure);
-    return *this;
-  }
+ protected:
+  // it hurts the performance to call glGetUniformLocation() every frame due to
+  // string operations.
+  // therefore, cache the locations in the constructor
+  int MVPMatrixUniform_;
+  int exposureUniform_;
+  int gammaUniform_;
+  int saturationUniform_;
+  int tileSizeUniform_;
+  int widthInTilesUniform_;
+  int objectIdUniform_;
 };
 
 }  // namespace gfx
 }  // namespace esp
+
+#endif  // ESP_GFX_PTEXMESHSHADER_H_

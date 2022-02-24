@@ -2,9 +2,12 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the root directory of this source tree.
 
-#pragma once
+#ifndef ESP_CORE_RANDOM_H_
+#define ESP_CORE_RANDOM_H_
 
 #include <random>
+
+#include "Esp.h"
 
 namespace esp {
 namespace core {
@@ -52,7 +55,11 @@ class Random {
   std::uniform_int_distribution<int> uniform_int_;
   std::uniform_int_distribution<uint32_t> uniform_uint32_;
   std::normal_distribution<float> normal_float_01_;
+
+  ESP_SMART_POINTERS(Random)
 };
 
 }  // namespace core
 }  // namespace esp
+
+#endif  // ESP_CORE_RANDOM_H_
